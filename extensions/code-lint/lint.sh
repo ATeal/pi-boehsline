@@ -121,17 +121,6 @@ matches_pattern() {
   return 1
 }
 
-LANGUAGE=$(get_language "$FILE_PATH")
-if [[ -z "$LANGUAGE" ]]; then
-  exit 0
-fi
-
-# Check if language is enabled
-LANG_ENABLED=$(jq -r ".languages[\"${LANGUAGE}\"].enabled // false" "$CONFIG_FILE")
-if [[ "$LANG_ENABLED" != "true" ]]; then
-  exit 0
-fi
-
 # Get relative path from project root for pattern matching
 REL_PATH="${FILE_PATH#"$PROJECT_DIR"/}"
 
@@ -151,8 +140,17 @@ fi
 ERRORS=""
 HAD_FAILURE=0
 
-# Iterate over linters for this language
-LINTERS=$(jq -r ".languages[\"${LANGUAGE}\"].linters | keys[]" "$CONFIG_FILE" 2>/dev/null || true)
+# Per-language linters
+LANGUAGE=$(get_language "$FILE_PATH")
+LANG_ENABLED=false
+if [[ -n "$LANGUAGE" ]]; then
+  LANG_ENABLED=$(jq -r ".languages[\"${LANGUAGE}\"].enabled // false" "$CONFIG_FILE")
+fi
+
+LINTERS=""
+if [[ "$LANG_ENABLED" == "true" ]]; then
+  LINTERS=$(jq -r ".languages[\"${LANGUAGE}\"].linters | keys[]" "$CONFIG_FILE" 2>/dev/null || true)
+fi
 
 for LINTER in $LINTERS; do
   # Stop early if configured and we already have a failure
@@ -222,6 +220,90 @@ for LINTER in $LINTERS; do
       HAD_FAILURE=1
     else
       ERRORS="${ERRORS}\n[${LINTER}] Exited with status ${LINT_EXIT} (no output)\n"
+      HAD_FAILURE=1
+    fi
+  }
+done
+
+# Tool linters (language-agnostic, e.g. semgrep)
+# These run when hook_mode is "per-file" regardless of language
+TOOL_LINTERS=$(jq -r '.tool_linters // {} | keys[]' "$CONFIG_FILE" 2>/dev/null || true)
+
+for TOOL in $TOOL_LINTERS; do
+  # Stop early if configured and we already have a failure
+  if [[ "$STOP_ON_FIRST" == "true" ]] && [[ $HAD_FAILURE -eq 1 ]]; then
+    break
+  fi
+
+  TOOL_ENABLED=$(jq -r ".tool_linters[\"${TOOL}\"].enabled // false" "$CONFIG_FILE")
+  if [[ "$TOOL_ENABLED" != "true" ]]; then
+    continue
+  fi
+
+  TOOL_HOOK_MODE=$(jq -r ".tool_linters[\"${TOOL}\"].hook_mode // \"off\"" "$CONFIG_FILE")
+  if [[ "$TOOL_HOOK_MODE" != "per-file" ]]; then
+    continue
+  fi
+
+  # Check exclude patterns
+  TOOL_EXCLUDE=$(jq -c ".tool_linters[\"${TOOL}\"].exclude_patterns // null" "$CONFIG_FILE")
+  if [[ "$TOOL_EXCLUDE" != "null" ]]; then
+    if matches_pattern "$REL_PATH" "$TOOL_EXCLUDE"; then
+      continue
+    fi
+  fi
+
+  TOOL_COMMAND=$(jq -r ".tool_linters[\"${TOOL}\"].command // empty" "$CONFIG_FILE")
+  TOOL_AUTOFIX=$(jq -r ".tool_linters[\"${TOOL}\"].autofix_command // empty" "$CONFIG_FILE")
+  TOOL_TIMEOUT=$(jq -r ".tool_linters[\"${TOOL}\"].timeout // 120" "$CONFIG_FILE")
+
+  if [[ -z "$TOOL_COMMAND" ]]; then
+    continue
+  fi
+
+  # Append --config flags from rulesets array (e.g. semgrep needs --config p/default)
+  RULESETS=$(jq -r ".tool_linters[\"${TOOL}\"].rulesets // [] | .[]" "$CONFIG_FILE" 2>/dev/null || true)
+  CONFIG_FLAGS=""
+  for RS in $RULESETS; do
+    CONFIG_FLAGS="${CONFIG_FLAGS} --config ${RS}"
+  done
+  if [[ -n "$CONFIG_FLAGS" ]]; then
+    TOOL_COMMAND="${TOOL_COMMAND}${CONFIG_FLAGS}"
+    [[ -n "$TOOL_AUTOFIX" ]] && TOOL_AUTOFIX="${TOOL_AUTOFIX}${CONFIG_FLAGS}"
+  fi
+
+  # Run autofix first if configured
+  if [[ "$AUTOFIX_BEFORE_LINT" == "true" ]] && [[ -n "$TOOL_AUTOFIX" ]]; then
+    cd "$PROJECT_DIR" || continue
+    AUTOFIX_OUTPUT=""
+    AUTOFIX_OUTPUT=$(run_with_timeout "${TOOL_TIMEOUT}s" "$TOOL_AUTOFIX" "$FILE_PATH") || {
+      AUTOFIX_EXIT=$?
+      if [[ $AUTOFIX_EXIT -eq 124 ]]; then
+        ERRORS="${ERRORS}\n[${TOOL}/autofix] Timed out after ${TOOL_TIMEOUT}s\n"
+        HAD_FAILURE=1
+      elif [[ -n "$AUTOFIX_OUTPUT" ]]; then
+        ERRORS="${ERRORS}\n[${TOOL}/autofix] ${AUTOFIX_OUTPUT}\n"
+        HAD_FAILURE=1
+      else
+        ERRORS="${ERRORS}\n[${TOOL}/autofix] Exited with status ${AUTOFIX_EXIT} (no output)\n"
+        HAD_FAILURE=1
+      fi
+    }
+  fi
+
+  # Run tool linter on the single file
+  cd "$PROJECT_DIR" || continue
+  LINT_OUTPUT=""
+  LINT_OUTPUT=$(run_with_timeout "${TOOL_TIMEOUT}s" "$TOOL_COMMAND" "$FILE_PATH") || {
+    LINT_EXIT=$?
+    if [[ $LINT_EXIT -eq 124 ]]; then
+      ERRORS="${ERRORS}\n[${TOOL}] Timed out after ${TOOL_TIMEOUT}s\n"
+      HAD_FAILURE=1
+    elif [[ -n "$LINT_OUTPUT" ]]; then
+      ERRORS="${ERRORS}\n[${TOOL}] ${LINT_OUTPUT}\n"
+      HAD_FAILURE=1
+    else
+      ERRORS="${ERRORS}\n[${TOOL}] Exited with status ${LINT_EXIT} (no output)\n"
       HAD_FAILURE=1
     fi
   }
