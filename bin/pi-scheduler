@@ -327,7 +327,10 @@ async function commandCheck() {
     const startedAt = Date.now();
     let outcome;
     try {
-      outcome = await runTask(task);
+      // The tick is unattended, so a failed run pages the task's own
+      // --deliver channel instead of waiting for someone to read `runs`.
+      // Manual `run` below does not: whoever ran it is already watching.
+      outcome = await runTask(task, { alertOnFailure: true });
     } catch (error) {
       // Never leave a claim behind: an unreleased task is invisible to every
       // later tick until CLAIM_STALE_MS elapses.

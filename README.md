@@ -178,6 +178,16 @@ pi-scheduler add --name grades --model openai/gpt-5-mini \
 A run is only recorded `ok` if the delivery command also exits 0, so a broken
 webhook shows up in `pi-scheduler runs` instead of failing silently.
 
+A failed run pages the same channel. When the tick runs a task and the run
+fails — the model is unreachable, the run overran its timeout, or the delivery
+itself errored — it sends a short `:rotating_light:` notice through the same
+`--deliver` command: the task, what happened, and the error, with the error
+also in `$PI_SCHEDULER_ERROR` for one-liners that want it structured. The
+notice is best-effort and never rewrites the run record: a delivery channel
+that is itself down is one more line in the tick's log, not a lost original
+error. Manual `run` sends nothing — whoever asked for the run is already
+watching.
+
 ### Missed fires
 
 `--misfire` decides what a late run does, because machines sleep: `skip` never

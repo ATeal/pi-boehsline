@@ -8,7 +8,7 @@
 
 import assert from "node:assert/strict";
 import test from "node:test";
-import { chmodSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, writeFileSync } from "node:fs";
+import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, writeFileSync } from "node:fs";
 import { homedir, tmpdir } from "node:os";
 import { join } from "node:path";
 
@@ -252,4 +252,68 @@ test("a pi that cannot be started says so instead of throwing", async (t) => {
   const outcome = await runTask(task(dir), { piBin: join(dir, "not-installed") });
   assert.equal(outcome.status, "error");
   assert.match(outcome.error, /could not start/);
+});
+
+test("a failed run pages the task's deliver channel when the tick asks for it", async (t) => {
+  const dir = withTempDir(t);
+  const piBin = script(dir, "pi", 'echo "the model is down" >&2; exit 1');
+  const stdinFile = join(dir, "notice-stdin");
+  const envFile = join(dir, "notice-env");
+
+  const outcome = await runTask(
+    task(dir, {
+      deliver: `cat > ${JSON.stringify(stdinFile)}; printf '%s' "$PI_SCHEDULER_ERROR" > ${JSON.stringify(envFile)}`,
+    }),
+    { piBin, alertOnFailure: true },
+  );
+
+  assert.equal(outcome.status, "error", "the page is about the run, not instead of it");
+  assert.match(outcome.error, /the model is down/);
+  const notice = readFileSync(stdinFile, "utf8");
+  assert.match(notice, /:rotating_light:/);
+  assert.match(notice, /\*reporter\* failed:/);
+  assert.match(notice, /the model is down/, "the error travels with the page");
+  assert.equal(readFileSync(envFile, "utf8"), "the model is down", "$PI_SCHEDULER_ERROR for one-liners");
+});
+
+test("a timed-out run pages the same way", async (t) => {
+  const dir = withTempDir(t);
+  const piBin = script(dir, "pi", "cat > /dev/null; sleep 30");
+  const stdinFile = join(dir, "notice-stdin");
+
+  const outcome = await runTask(
+    task(dir, { timeoutMs: 300, deliver: `cat > ${JSON.stringify(stdinFile)}` }),
+    { piBin, alertOnFailure: true },
+  );
+
+  assert.equal(outcome.status, "timeout");
+  assert.match(readFileSync(stdinFile, "utf8"), /\*reporter\* timed out:/);
+});
+
+test("without alertOnFailure a failed run stays quiet — someone is watching", async (t) => {
+  const dir = withTempDir(t);
+  const piBin = script(dir, "pi", 'echo "the model is down" >&2; exit 1');
+  const marker = join(dir, "delivered");
+
+  const outcome = await runTask(
+    task(dir, { deliver: `touch ${JSON.stringify(marker)}` }),
+    { piBin },
+  );
+
+  assert.equal(outcome.status, "error");
+  assert.ok(!existsSync(marker), "manual runs do not page; the human is the notification");
+});
+
+test("a failure notice that cannot be delivered never rewrites the run's own story", async (t) => {
+  const dir = withTempDir(t);
+  const piBin = script(dir, "pi", 'echo "the model is down" >&2; exit 1');
+
+  const outcome = await runTask(
+    task(dir, { deliver: 'echo "slack is down too" >&2; exit 1' }),
+    { piBin, alertOnFailure: true },
+  );
+
+  assert.equal(outcome.status, "error");
+  assert.match(outcome.error, /the model is down/, "the original failure, not the notice's");
+  assert.doesNotMatch(outcome.error, /slack is down too/);
 });

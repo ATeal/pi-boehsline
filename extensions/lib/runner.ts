@@ -49,6 +49,8 @@ const MAX_CAPTURED_OUTPUT = 200_000;
  */
 const MAX_ENV_OUTPUT = 100_000;
 const DELIVERY_TIMEOUT_MS = 120_000;
+/** Cap on the error text inside a failure notice, to keep the page readable. */
+const MAX_ALERT_ERROR = 1_500;
 
 export function piArgsFor(task: DurableTask): string[] {
   const enabled = enabledFeatures(task);
@@ -211,15 +213,91 @@ function resolveCwd(task: DurableTask): { cwd: string } | { error: string } {
   }
 }
 
+export interface RunOptions {
+  piBin?: string;
+  env?: NodeJS.ProcessEnv;
+  deliveryTimeoutMs?: number;
+  /**
+   * Page the task's delivery channel when the run fails. The tick sets this:
+   * it runs unattended, and without it a failed run is a silent registry
+   * entry — the 15:30 grade check that never arrives being the case that
+   * motivated it. Manual runs leave it off; whoever asked is already watching.
+   */
+  alertOnFailure?: boolean;
+}
+
 /**
  * Run the task's prompt and, if it has one, its delivery command.
  *
  * The prompt goes in on stdin rather than argv so it never appears in `ps`
  * output, and the same is true of the result handed to `deliver`.
+ *
+ * With `alertOnFailure` a failed run also pages the task's own delivery
+ * channel, so an unattended tick cannot fail quietly.
  */
-export async function runTask(
+export async function runTask(task: DurableTask, options: RunOptions = {}): Promise<RunOutcome> {
+  const outcome = await executeTask(task, options);
+  if (options.alertOnFailure && task.deliver && outcome.status !== "ok") {
+    await alertFailure(task, task.deliver, outcome, options);
+  }
+  return outcome;
+}
+
+/**
+ * A failure notice through the task's own delivery channel.
+ *
+ * The record of a failed run sits in `runs` where nobody looks until something
+ * is already wrong, so the tick sends the failure to the one place built for
+ * "this task wants attention": its `deliver` command. The notice is the whole
+ * message on stdin — a `slack-noti` one-liner needs nothing more — with the
+ * error also in `$PI_SCHEDULER_ERROR` for anything structured.
+ *
+ * Best-effort on purpose. A broken channel must not crash the tick or rewrite
+ * the run's story: the outcome is returned to the caller untouched, and a
+ * notice that could not be delivered is said so on stderr, which is where the
+ * tick's log already lives. The cwd falls back to $HOME for the same reason —
+ * a vanished project directory must not cost the page as well as the run.
+ */
+async function alertFailure(
   task: DurableTask,
-  options: { piBin?: string; env?: NodeJS.ProcessEnv; deliveryTimeoutMs?: number } = {},
+  deliver: string,
+  outcome: RunOutcome,
+  options: { env?: NodeJS.ProcessEnv; deliveryTimeoutMs?: number },
+): Promise<void> {
+  const env = options.env ?? process.env;
+  const error = truncate(outcome.error ?? `status ${outcome.status}`, MAX_ALERT_ERROR);
+  const what = outcome.status === "timeout" ? "timed out" : "failed";
+  const notice = `:rotating_light: pi-scheduler *${task.name ?? task.id}* ${what}: ${error}`;
+  const deliveryTimeoutMs = options.deliveryTimeoutMs ?? DELIVERY_TIMEOUT_MS;
+  const resolved = resolveCwd(task);
+  const name = task.name ?? task.id;
+  const notDelivered = (reason: string) =>
+    process.stderr.write(`${new Date().toISOString()} ${name} failure notice not delivered: ${reason}\n`);
+
+  let delivery: CaptureResult;
+  try {
+    delivery = await capture("/bin/sh", ["-c", deliver], {
+      cwd: "error" in resolved ? homedir() : resolved.cwd,
+      env: { ...env, PI_SCHEDULER_TASK: name, PI_SCHEDULER_ERROR: error },
+      input: notice,
+      timeoutMs: deliveryTimeoutMs,
+    });
+  } catch (spawnError) {
+    notDelivered(spawnError instanceof Error ? spawnError.message : String(spawnError));
+    return;
+  }
+  if (delivery.timedOut) {
+    notDelivered(`did not finish within ${deliveryTimeoutMs}ms and was killed`);
+  } else if (delivery.code !== 0) {
+    notDelivered(
+      truncate(delivery.stderr.trim() || `exited ${delivery.code ?? delivery.signal}`, 500),
+    );
+  }
+}
+
+async function executeTask(
+  task: DurableTask,
+  options: { piBin?: string; env?: NodeJS.ProcessEnv; deliveryTimeoutMs?: number },
 ): Promise<RunOutcome> {
   const piBin = options.piBin ?? process.env.PI_SCHEDULER_PI_BIN ?? "pi";
   const env = options.env ?? process.env;
