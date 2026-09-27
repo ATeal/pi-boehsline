@@ -9,6 +9,8 @@ Thanks for your interest! This is a small, dependency-free pi extension.
   envelope). The single place to update if Claude's protocol changes.
 - `mentions.ts` — `@` autocomplete + `@name` prompt annotation (no pi imports).
 - `skills/pi-agent-link/SKILL.md` — teaches the pi model to use the `agent-link` tool.
+- `skills/grok-bot-pi-link/SKILL.md` — teaches Grok Bot to drive live Pi sessions via `pi-link`.
+- `contrib/grok-bot/` — Mac-side helpers (`pi-link`, `grok-bot-peer`) and webhook notes.
 - `test/` — end-to-end harnesses driving a real pi rpc session.
 
 No build step: pi runs the TypeScript directly.

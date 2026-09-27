@@ -170,3 +170,15 @@ changes it, `claude-protocol.ts` is the single place to update.
 ## License
 
 [MIT](./LICENSE)
+
+## Grok Bot bridge
+
+Talk to live Pi sessions from [Grok Bot](https://grok.x.ai/) (or the reverse) without
+burning Grok API quota on coding work:
+
+- **`contrib/grok-bot/pi-link`** — list / send / ask / capture against live pi-agent-link peers
+- **`contrib/grok-bot/grok-bot-peer`** — register a `grok-bot` peer on the Mac + optional webhook wake
+- **`skills/grok-bot-pi-link/SKILL.md`** — Grok Bot skill (copy into a bot's workflows)
+
+See `contrib/grok-bot/README.md` for install and webhook setup.
+
