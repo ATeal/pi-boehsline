@@ -296,11 +296,28 @@ export function classifyReadPath(path: string, cwd: string): ReadReviewTarget {
 		projectRoot,
 		windowsPath,
 	);
+	// A symlink must not hide either name. `~/.pi/agent/settings.json` stays
+	// private when `~/.pi` points elsewhere, and a public name that resolves to
+	// a confidential file stays private too.
+	const canonical = classifyAbsoluteReadPrivacy(absolutePath);
+	const lexical = classifyAbsoluteReadPrivacy(
+		lexicalAbsolutePath(path, cwd),
+	);
 	return {
 		absolutePath,
 		outsideProject,
-		...classifyAbsoluteReadPrivacy(absolutePath),
+		private: canonical.private || lexical.private,
+		reasons: [...new Set([...canonical.reasons, ...lexical.reasons])],
 	};
+}
+
+function lexicalAbsolutePath(path: string, cwd: string): string {
+	const normalizedPath = normalizeGuardianPath(path);
+	const normalizedCwd = normalizeGuardianPath(cwd);
+	if (isWindowsAbsolute(normalizedPath) && process.platform !== "win32") {
+		return win32.normalize(normalizedPath).replace(/\\/g, "/");
+	}
+	return resolve(normalizedCwd, normalizedPath);
 }
 
 export function shouldReviewPath(

@@ -177,7 +177,7 @@ Wildcard tokens in `bash` commands are matched against representative private na
   - leftover braces;
   - a glob segment starting with `.` or `[` (such as `.?`, `.[.]`, `[.][.]`), which can match `..` in older bash or with `dotglob`.
 
-  Anything else that is not exempt is private if it contains a glob. If it is literal, it is classified by `classifyReadPath()`, which resolves `..` and existing symlinks. So `skills/.{.,}/settings.json`, `skills/\.\./settings.json`, and `skills/foo/../../sessions/x.jsonl` are private, and `skills/foo/../bar/SKILL.md` is not.
+  Anything else that is not exempt is private if it contains a glob. The unexpanded word is checked too, so leftover braces are not lost when `{.,}` expands to `.` and an empty alternative. If it is literal, it is classified by `classifyReadPath()`, which resolves `..` and existing symlinks. A path is private when either the lexical name or the resolved target is private, so a symlink cannot hide a confidential Pi path or a confidential target. So `skills/.{.,}/settings.json`, `skills/\.\./settings.json`, `$HOME/.pi/agent/settings.json`, and `skills/foo/../../sessions/x.jsonl` are private, and `skills/foo/../bar/SKILL.md` is not.
 
 ## Broad search handling
 

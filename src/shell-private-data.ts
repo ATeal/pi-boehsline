@@ -555,13 +555,17 @@ function piCandidateIsPrivate(candidate: string, cwd: string): boolean {
 	return true;
 }
 
+function piPathForms(token: string): string[] {
+	// Keep the unexpanded word. Brace expansion drops `{.,}`, and that leftover
+	// brace is what stops a public subtree from exempting `skills/.{.,}/settings.json`.
+	return [token, ...expandBracePatterns(token)];
+}
+
 function referencesDynamicPiPath(command: string, cwd: string): boolean {
 	const tokens = command.split(/[\s'"`;|&<>()]+/).filter(Boolean);
 	if (
 		tokens.some((token) =>
-			expandBracePatterns(token).some((expanded) =>
-				piCandidateIsPrivate(expanded, cwd),
-			),
+			piPathForms(token).some((form) => piCandidateIsPrivate(form, cwd)),
 		)
 	) {
 		return true;
