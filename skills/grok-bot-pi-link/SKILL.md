@@ -1,5 +1,5 @@
 ---
-name: Pi link
+name: grok-bot-pi-link
 description: >-
   Use when the user asks to talk to, list, send a prompt to, or read a reply
   from a live Pi coding-agent session in tmux on their Mac (phone→Grok→Pi,
