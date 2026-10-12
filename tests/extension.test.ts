@@ -1663,6 +1663,203 @@ test("temporarily bypasses reviews with only a persistent below-editor warning",
 	}
 });
 
+test("restores temporary bypass and the warning after reload only", async () => {
+	const previousAgentDir = process.env.PI_CODING_AGENT_DIR;
+	const previousPrimary = process.env.PI_APPROVAL_GUARDIAN_MODEL;
+	const previousFallback = process.env.PI_APPROVAL_GUARDIAN_FALLBACK_MODEL;
+	const root = mkdtempSync(join(tmpdir(), "guardian-bypass-reload-"));
+	process.env.PI_CODING_AGENT_DIR = join(root, "agent");
+	process.env.PI_APPROVAL_GUARDIAN_MODEL = "test/reviewer";
+	process.env.PI_APPROVAL_GUARDIAN_FALLBACK_MODEL = "test/reviewer";
+
+	const install = () => {
+		const handlers = new Map<
+			string,
+			(event: { reason?: string }, ctx: never) => unknown
+		>();
+		const commands = new Map<
+			string,
+			{ handler: (args: string, ctx: never) => unknown }
+		>();
+		const emitted: Array<{ name: string; data: unknown }> = [];
+		approvalGuardian({
+			events: {
+				on: () => undefined,
+				emit: (name: string, data: unknown) => emitted.push({ name, data }),
+			},
+			on: (
+				name: string,
+				handler: (event: { reason?: string }, ctx: never) => unknown,
+			) => {
+				handlers.set(name, handler);
+			},
+			registerCommand: (
+				name: string,
+				options: { handler: (args: string, ctx: never) => unknown },
+			) => commands.set(name, options),
+		} as never);
+		return { handlers, commands, emitted };
+	};
+
+	const widgets: Array<[string, string[] | undefined]> = [];
+	let sessionFile: string | undefined = "/tmp/guardian-session-a.jsonl";
+	const ctx = {
+		mode: "tui",
+		cwd: "/repo/project",
+		isProjectTrusted: () => false,
+		modelRegistry: {
+			find: () => undefined,
+			hasConfiguredAuth: () => false,
+		},
+		sessionManager: {
+			getBranch: () => [],
+			getSessionFile: () => sessionFile,
+		},
+		ui: {
+			theme: { fg: (_color: string, text: string) => text },
+			setStatus: () => undefined,
+			setWidget: (key: string, lines: string[] | undefined) => {
+				widgets.push([key, lines]);
+			},
+			notify: () => undefined,
+		},
+	} as never;
+
+	const coveredCall = () => {
+		const call = event("bash", { command: "echo bypassed" });
+		(call as { toolCallId: string }).toolCallId = "reload-call";
+		return call;
+	};
+
+	try {
+		const first = install();
+		const command = first.commands.get("approval-guardian");
+		assert.ok(command);
+		await command.handler("bypass", ctx);
+		assert.match(widgets.at(-1)?.[1]?.join("\n") ?? "", /BYPASSED/);
+
+		await first.handlers.get("session_shutdown")?.(
+			{ reason: "reload" },
+			ctx,
+		);
+		assert.deepEqual(widgets.at(-1), ["approval-guardian-bypass", undefined]);
+
+		const reloaded = install();
+		widgets.length = 0;
+		reloaded.emitted.length = 0;
+		await reloaded.handlers.get("session_start")?.(
+			{ reason: "reload" },
+			ctx,
+		);
+		assert.match(widgets.at(-1)?.[1]?.join("\n") ?? "", /BYPASSED/);
+		assert.equal(
+			reloaded.emitted.some(
+				({ name, data }) =>
+					name === APPROVAL_GUARDIAN_BYPASS_STATE_EVENT &&
+					(data as { active?: boolean }).active === true,
+			),
+			true,
+		);
+		const restoredCall = coveredCall();
+		assert.equal(
+			await reloaded.handlers.get("tool_call")?.(restoredCall as never, ctx),
+			undefined,
+		);
+		assert.equal(
+			Object.isFrozen(restoredCall.input),
+			false,
+			"reload must keep the bypass, so the call is not reviewed or locked",
+		);
+
+		sessionFile = "/tmp/guardian-session-b.jsonl";
+		const otherSession = install();
+		widgets.length = 0;
+		await otherSession.handlers.get("session_start")?.(
+			{ reason: "reload" },
+			ctx,
+		);
+		assert.equal(
+			widgets.some(([, lines]) => lines?.some((line) => /BYPASSED/.test(line))),
+			false,
+			"a different session must not inherit the bypass",
+		);
+		sessionFile = "/tmp/guardian-session-a.jsonl";
+
+		await reloaded.commands.get("approval-guardian")?.handler("enable", ctx);
+		assert.deepEqual(widgets.at(-1), ["approval-guardian-bypass", undefined]);
+		const afterEnable = install();
+		await afterEnable.handlers.get("session_shutdown")?.(
+			{ reason: "reload" },
+			ctx,
+		);
+		widgets.length = 0;
+		await afterEnable.handlers.get("session_start")?.(
+			{ reason: "reload" },
+			ctx,
+		);
+		assert.equal(
+			widgets.some(([, lines]) => lines?.some((line) => /BYPASSED/.test(line))),
+			false,
+		);
+
+		await command.handler("bypass", ctx);
+		await first.handlers.get("session_shutdown")?.(
+			{ reason: "new" },
+			ctx,
+		);
+		const replaced = install();
+		widgets.length = 0;
+		await replaced.handlers.get("session_start")?.({ reason: "new" }, ctx);
+		await replaced.handlers.get("session_start")?.(
+			{ reason: "reload" },
+			ctx,
+		);
+		assert.equal(
+			widgets.some(([, lines]) => lines?.some((line) => /BYPASSED/.test(line))),
+			false,
+		);
+
+		await command.handler("bypass", ctx);
+		await first.handlers.get("session_shutdown")?.(
+			{ reason: "reload" },
+			ctx,
+		);
+		const nonTui = install();
+		widgets.length = 0;
+		await nonTui.handlers.get("session_start")?.(
+			{ reason: "reload" },
+			{ ...(ctx as object), mode: "rpc" } as never,
+		);
+		assert.equal(
+			widgets.some(([, lines]) => lines?.some((line) => /BYPASSED/.test(line))),
+			false,
+		);
+		const laterTui = install();
+		await laterTui.handlers.get("session_start")?.(
+			{ reason: "reload" },
+			ctx,
+		);
+		assert.equal(
+			widgets.some(([, lines]) => lines?.some((line) => /BYPASSED/.test(line))),
+			false,
+		);
+	} finally {
+		const cleanup = install();
+		await cleanup.handlers.get("session_shutdown")?.(
+			{ reason: "quit" },
+			ctx,
+		);
+		if (previousAgentDir === undefined) delete process.env.PI_CODING_AGENT_DIR;
+		else process.env.PI_CODING_AGENT_DIR = previousAgentDir;
+		if (previousPrimary === undefined)
+			delete process.env.PI_APPROVAL_GUARDIAN_MODEL;
+		else process.env.PI_APPROVAL_GUARDIAN_MODEL = previousPrimary;
+		if (previousFallback === undefined)
+			delete process.env.PI_APPROVAL_GUARDIAN_FALLBACK_MODEL;
+		else process.env.PI_APPROVAL_GUARDIAN_FALLBACK_MODEL = previousFallback;
+	}
+});
+
 test("warns and continues when configuration entries are unsupported", async () => {
 	const handlers = new Map<string, (event: unknown, ctx: never) => unknown>();
 	const commands = new Map<string, { handler: (args: string, ctx: never) => unknown }>();

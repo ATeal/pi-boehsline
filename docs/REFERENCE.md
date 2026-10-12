@@ -110,7 +110,7 @@ While bypass is active:
 - a covered call whose reviewer inference is still in flight when bypass activates is permitted to continue without approved-input locking or a per-action review notice;
 - `/approval-guardian` reports `reviews disabled` plus the underlying reviewer readiness, without claiming that current execution is fail-closed.
 
-The bypass does not release or retry an already blocked tool call, trigger an agent turn, or grant task authorization. It is not persisted to the session file and resets on every `session_start` lifecycle, including startup/reload/new/resume/fork, as well as process restart.
+The bypass does not release or retry an already blocked tool call, trigger an agent turn, or grant task authorization. It is not persisted to the session file or injected into agent context. It is kept in process memory, keyed by session file, so a `/reload` (`session_start` reason `reload`) of that same session in interactive TUI mode can restore it and re-show the below-editor warning. `/new`, `/resume`, `/fork`, startup, and process restart clear it. A reload of a different session does not inherit it. A reload whose new runtime is not interactive TUI does not restore it, because a persistent warning cannot be guaranteed there.
 
 Guardian intentionally does not inject bypass or re-enable state into agent messages, the system prompt, or other model context. A one-shot persisted “bypassed” message could remain stale after re-enabling and could be misread as permission; the user must separately instruct the agent what work to perform. The persistent below-editor widget is the user-facing safety signal.
 

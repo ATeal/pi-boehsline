@@ -2,6 +2,8 @@
 import type {
 	ExtensionAPI,
 	ExtensionContext,
+	SessionShutdownEvent,
+	SessionStartEvent,
 } from "@earendil-works/pi-coding-agent";
 import {
 	collectGuardianMessages,
@@ -74,6 +76,43 @@ export const APPROVAL_GUARDIAN_BYPASS_CONTROL_EVENT =
 	"approval-guardian:set-temporary-bypass";
 export const APPROVAL_GUARDIAN_BYPASS_STATE_EVENT =
 	"approval-guardian:temporary-bypass-state";
+
+/**
+ * Process-scoped carrier for temporary bypass across `/reload`.
+ *
+ * `/reload` copies `ExtensionRunner` flag values into the new runtime, but
+ * `ExtensionAPI` can only read flags. Registering a CLI flag would also show
+ * up in `--help` and could start a non-TUI process already bypassed. This
+ * slot has the same lifetime as those copied flag values: the process keeps
+ * it, and session replacement or exit drops it. Module state cannot do this
+ * because Pi re-imports the extension with the module cache disabled.
+ */
+const TEMPORARY_BYPASS_PROCESS_SLOT = Symbol.for(
+	"pi-approval-guardian.temporary-bypass",
+);
+
+function sessionFileOf(ctx: ExtensionContext): string | undefined {
+	return ctx.sessionManager.getSessionFile?.();
+}
+
+function persistedBypassSessionFile(): string | undefined | null {
+	const value = Reflect.get(globalThis, TEMPORARY_BYPASS_PROCESS_SLOT);
+	if (!value || typeof value !== "object") return null;
+	const sessionFile = (value as { sessionFile?: unknown }).sessionFile;
+	if (sessionFile === undefined) return undefined;
+	return typeof sessionFile === "string" ? sessionFile : null;
+}
+
+function persistTemporaryBypass(
+	active: boolean,
+	sessionFile?: string,
+): void {
+	if (active) {
+		Reflect.set(globalThis, TEMPORARY_BYPASS_PROCESS_SLOT, { sessionFile });
+		return;
+	}
+	Reflect.deleteProperty(globalThis, TEMPORARY_BYPASS_PROCESS_SLOT);
+}
 
 export interface ApprovalGuardianBypassControlRequest {
 	active: boolean;
@@ -186,14 +225,46 @@ export default function approvalGuardian(
 		notifyReviewerSwitch,
 	};
 
-	pi.on("session_start", (_event, ctx) => {
+	const restoreTemporaryBypassAfterReload = (ctx: ExtensionContext) => {
+		const persistedSessionFile = persistedBypassSessionFile();
+		if (persistedSessionFile === null) return;
+		// A different session file means /new, /resume, or /fork, even if the
+		// shutdown clear was skipped. Leave the slot for the session that owns it.
+		// Undefined matches only an in-memory session.
+		if (persistedSessionFile !== sessionFileOf(ctx)) return;
+		// Fail closed when the new runtime cannot keep the warning on screen.
+		if (ctx.mode !== "tui") {
+			persistTemporaryBypass(false);
+			return;
+		}
+		temporaryBypassActive = true;
+		showBypassWarning(ctx);
+		pi.events?.emit(APPROVAL_GUARDIAN_BYPASS_STATE_EVENT, {
+			active: true,
+		});
+	};
+
+	pi.on("session_start", (event: SessionStartEvent, ctx) => {
 		runtimeContext = ctx;
 		const wasBypassed = temporaryBypassActive;
 		resetRuntime();
 		if (wasBypassed) clearBypassWarning(ctx);
+		// Only /reload replaces this runtime inside the same process. /new,
+		// /resume, /fork, and startup must not inherit a bypass from the slot.
+		if (event.reason === "reload") restoreTemporaryBypassAfterReload(ctx);
+		else if (wasBypassed) persistTemporaryBypass(false);
 		syncGuardianRuntimeHealth(ctx, statusCallbacks);
 	});
-	pi.on("session_shutdown", (_event, ctx) => {
+	pi.on("session_shutdown", (event: SessionShutdownEvent, ctx) => {
+		const persistedSessionFile = persistedBypassSessionFile();
+		if (
+			event?.reason !== "reload" &&
+			(temporaryBypassActive ||
+				persistedSessionFile === null ||
+				persistedSessionFile === sessionFileOf(ctx))
+		) {
+			persistTemporaryBypass(false);
+		}
 		resetRuntime();
 		clearBypassWarning(ctx);
 		runtimeContext = undefined;
@@ -226,6 +297,9 @@ export default function approvalGuardian(
 			);
 		}
 		if (temporaryBypassActive === nextActive) {
+			if (nextActive || persistedBypassSessionFile() === sessionFileOf(ctx)) {
+				persistTemporaryBypass(nextActive, sessionFileOf(ctx));
+			}
 			if (nextActive) showBypassWarning(ctx);
 			else clearBypassWarning(ctx);
 			pi.events?.emit(APPROVAL_GUARDIAN_BYPASS_STATE_EVENT, {
@@ -241,6 +315,7 @@ export default function approvalGuardian(
 		}
 
 		temporaryBypassActive = nextActive;
+		persistTemporaryBypass(nextActive, sessionFileOf(ctx));
 		disposeReviewerControllers();
 		reviewerSwitchNoticeKeys.clear();
 		circuitBreaker.reset();
@@ -256,7 +331,7 @@ export default function approvalGuardian(
 					[
 						"Approval Guardian is temporarily BYPASSED.",
 						"Covered agent tool calls will proceed without Guardian review until /approval-guardian enable.",
-						"This does not grant the agent additional authorization, and the bypass resets automatically when the Pi session runtime reloads or is replaced.",
+						"This does not grant the agent additional authorization. The bypass stays on across /reload and resets when the session is replaced or Pi restarts.",
 					].join("\n"),
 					"warning",
 				);

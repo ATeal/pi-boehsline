@@ -159,7 +159,7 @@ bypass 期间，editor 下方会持续保留单行警告。停用期间，受保
 /approval-guardian enable
 ```
 
-命令会立即切换状态，即使 agent run 仍在进行中。启用 bypass 会取消正在进行的 reviewer，并允许其等待中的受保护 tool call 继续；但不会放行或重试之前已经阻塞的 call，不会自动触发新的 agent turn，也不代表授予 agent 额外权限。bypass 只保存在内存中，遇到 `/reload`、`/new`、`/resume`、`/fork` 或 process 重启就会自动清除。只有交互式 TUI mode 能够启用；RPC、JSON 和 print mode 因无法保证持续显示警告而会拒绝。
+命令会立即切换状态，即使 agent run 仍在进行中。启用 bypass 会取消正在进行的 reviewer，并允许其等待中的受保护 tool call 继续；但不会放行或重试之前已经阻塞的 call，不会自动触发新的 agent turn，也不代表授予 agent 额外权限。bypass 只保存在当前 process 的内存中，并绑定到当前 session file。同一 session 的 `/reload` 后仍会保持并重新显示警告。遇到 `/new`、`/resume`、`/fork` 或 process 重启就会自动清除，其他 session 的 `/reload` 不会继承它。只有交互式 TUI mode 能够启用；RPC、JSON 和 print mode 因无法保证持续显示警告而会拒绝。reload 到这些 mode 时不会恢复 bypass。
 
 bypass／enable 通知仅显示在 UI。Guardian 刻意不把该控制状态注入 agent context：持久的“已 bypass”消息可能在重新启用后变成过期信息，也可能被误解为工作授权。要让 agent 执行什么，仍应另行给出明确指令。
 
