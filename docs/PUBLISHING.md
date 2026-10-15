@@ -137,7 +137,7 @@ Once trusted publishing is proven, configure npm package publishing access to re
 
 - [ ] Review all source and dependency changes.
 - [ ] When path classification changes, audit `src/path-rules.ts` and the structured-path/shell parity tests together.
-- [ ] Update `CHANGELOG.md` when one is added.
+- [ ] Add the release to `CHANGELOG.md`.
 - [ ] Update every localized README.
 - [ ] Confirm `NOTICE`, the Apache-2.0 license copy, and the attribution header in `src/policy.ts` remain present.
 - [ ] Confirm `package.json` and `package-lock.json` versions match.
