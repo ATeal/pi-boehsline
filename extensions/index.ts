@@ -48,6 +48,7 @@ import {
 	shouldInvalidateDirectoryScanCache,
 	toolCallBatchInfo,
 } from "../src/tool-actions.ts";
+import { openGuardianSettings } from "../src/settings-menu.ts";
 import { lockAllowedToolInput } from "../src/tool-input-lock.ts";
 
 export {
@@ -360,6 +361,11 @@ export default function approvalGuardian(
 
 	const commandArguments = [
 		{
+			value: "status",
+			label: "status",
+			description: "Show reviewer readiness and configuration",
+		},
+		{
 			value: "rules",
 			label: "rules",
 			description: "Show review levels",
@@ -378,7 +384,7 @@ export default function approvalGuardian(
 
 	pi.registerCommand("approval-guardian", {
 		description:
-			"Show Guardian status/rules or temporarily bypass/enable review",
+			"Configure Guardian settings, show status/rules, or temporarily bypass/enable review",
 		getArgumentCompletions: (prefix) => {
 			const normalized = prefix.trim().toLowerCase();
 			const matches = commandArguments.filter(({ value }) =>
@@ -387,21 +393,32 @@ export default function approvalGuardian(
 			return matches.length > 0 ? matches : null;
 		},
 		handler: async (args, ctx) => {
-			switch (args.trim().toLowerCase()) {
-				case "bypass":
-					await setTemporaryBypass(true, ctx);
-					return;
-				case "enable":
-					await setTemporaryBypass(false, ctx);
-					return;
-				default:
-					await showGuardianConfiguration(
-						args,
-						ctx,
-						temporaryBypassActive,
-						statusCallbacks,
-					);
+			const subcommand = args.trim().toLowerCase();
+			if (subcommand === "bypass" || subcommand === "enable") {
+				await setTemporaryBypass(subcommand === "bypass", ctx);
+				return;
 			}
+			if (subcommand === "" && ctx.mode === "tui") {
+				await openGuardianSettings(ctx, {
+					isBypassed: () => temporaryBypassActive,
+					setBypass: (active, commandCtx) =>
+						setTemporaryBypass(active, commandCtx),
+					showStatus: (commandCtx) =>
+						showGuardianConfiguration(
+							"",
+							commandCtx,
+							temporaryBypassActive,
+							statusCallbacks,
+						),
+				});
+				return;
+			}
+			await showGuardianConfiguration(
+				subcommand === "status" ? "" : args,
+				ctx,
+				temporaryBypassActive,
+				statusCallbacks,
+			);
 		},
 	});
 

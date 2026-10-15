@@ -1488,7 +1488,7 @@ test("temporarily bypasses reviews with only a persistent below-editor warning",
 		assert.equal(statuses.length, 0);
 		assert.deepEqual(
 			command.getArgumentCompletions?.("")?.map(({ value }) => value),
-			["rules", "bypass", "enable"],
+			["status", "rules", "bypass", "enable"],
 		);
 
 		notices.length = 0;
@@ -1542,7 +1542,7 @@ test("temporarily bypasses reviews with only a persistent below-editor warning",
 		);
 
 		notices.length = 0;
-		await command.handler("", ctx);
+		await command.handler("status", ctx);
 		assert.match(notices.join("\n"), /BYPASSED · underlying ready/);
 		assert.match(notices.join("\n"), /reviews disabled/);
 		assert.doesNotMatch(notices.join("\n"), /BYPASSED[^\n]*fail-closed/);

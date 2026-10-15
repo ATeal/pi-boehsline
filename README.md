@@ -25,7 +25,7 @@ The built-in defaults use `openai-codex/codex-auto-review` with a 90-second dead
 ```text
 /login openai-codex
 /reload
-/approval-guardian
+/approval-guardian status
 ```
 
 No configuration file is required for the default setup.
@@ -174,7 +174,9 @@ Policy is additive across global, trusted-project, and environment configuration
 
 Malformed or unsupported settings produce UI warnings and are ignored; remaining valid settings and built-in defaults stay active, so a configuration typo does not globally block tools. While temporary bypass is inactive, covered actions still fail closed unless a reviewer returns a valid allow decision.
 
-Run `/approval-guardian` to inspect primary, configured-fallback, and current-model readiness plus effective config sources, or `/approval-guardian rules` for the rule matrix.
+In interactive TUI mode, `/approval-guardian` opens a settings menu for the reviewer model, fallback model, timeout, custom policy, review rules, and the temporary bypass. Model, timeout, policy, and rule changes are saved to the global config file shown above (unknown keys are preserved; choosing a `default (…)` value removes the key). Environment variables and trusted project configs still take precedence, and the menu notes when they do.
+
+Run `/approval-guardian status` to inspect primary, configured-fallback, and current-model readiness plus effective config sources, or `/approval-guardian rules` for the rule matrix. Outside TUI mode, bare `/approval-guardian` prints the status.
 
 ### Temporary bypass
 

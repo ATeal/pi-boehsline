@@ -94,7 +94,9 @@ Malformed primary/fallback model, timeout, policy, review container, review leve
 
 Reviewer channels are tried in this order after deduplicating equivalent model identities: configured primary, configured `fallbackModel`, then the current Pi session model as the final fallback. `fallbackModel` defaults to `openai-codex/codex-auto-review`. Guardian advances only when the prior channel is missing, lacks usable authentication, or returns an explicit failure. A timeout is terminal for the action and blocks fail-closed without trying another channel. An explicit allow, deny, or cancellation also stops the chain immediately. Each distinct reviewer channel that is reached receives the configured deadline and its own retry budget. The current model is used only as the model identity for a new isolated reviewer session; Guardian never reuses the main conversation session as reviewer state. Channel switches emit UI-only warnings and are not injected into agent context.
 
-`/approval-guardian` reports the primary, configured fallback, current-model fallback, timeout, policy sources, config-file state, and temporary-bypass state. It resolves usable request authentication but does not send a reviewer inference. Startup health performs only the faster configured-auth check, including degraded and active-fallback status.
+In TUI mode, bare `/approval-guardian` opens a settings menu. It edits only the global config file, round-trips unknown keys, writes atomically with mode `0600`, refuses to overwrite a file that is not a JSON object, and removes a key when its `default (…)` value is chosen. The bypass row calls the same transition as `/approval-guardian bypass` / `enable` and is never persisted to config. Environment and trusted project values keep their normal precedence; the menu describes them but does not edit them.
+
+`/approval-guardian status` (and bare `/approval-guardian` outside TUI mode) reports the primary, configured fallback, current-model fallback, timeout, policy sources, config-file state, and temporary-bypass state. It resolves usable request authentication but does not send a reviewer inference. Startup health performs only the faster configured-auth check, including degraded and active-fallback status.
 
 ## Temporary runtime bypass
 
@@ -108,7 +110,7 @@ While bypass is active:
 - other extensions and tool-internal checks remain active; bypass disables only Approval Guardian's hook;
 - cached reviewer controllers are disposed and circuit/batch state is reset across each mode transition;
 - a covered call whose reviewer inference is still in flight when bypass activates is permitted to continue without approved-input locking or a per-action review notice;
-- `/approval-guardian` reports `reviews disabled` plus the underlying reviewer readiness, without claiming that current execution is fail-closed.
+- `/approval-guardian status` reports `reviews disabled` plus the underlying reviewer readiness, without claiming that current execution is fail-closed.
 
 The bypass does not release or retry an already blocked tool call, trigger an agent turn, or grant task authorization. It is not persisted to the session file or injected into agent context. It is kept in process memory, keyed by session file, so a `/reload` (`session_start` reason `reload`) of that same session in interactive TUI mode can restore it and re-show the below-editor warning. `/new`, `/resume`, `/fork`, startup, and process restart clear it. A reload of a different session does not inherit it. A reload whose new runtime is not interactive TUI does not restore it, because a persistent warning cannot be guaranteed there.
 
