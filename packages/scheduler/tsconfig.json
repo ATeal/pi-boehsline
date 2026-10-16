@@ -1,0 +1,24 @@
+{
+  "compilerOptions": {
+    "target": "es2023",
+    "lib": ["es2023"],
+    "module": "nodenext",
+    "moduleResolution": "nodenext",
+    "types": ["node"],
+    "strict": true,
+    "noUncheckedIndexedAccess": true,
+    "noEmit": true,
+    "skipLibCheck": true,
+    // These modules are loaded two different ways, and the strictest wins.
+    // pi transpiles extensions through jiti; bin/pi-scheduler imports the same
+    // files under Node's strip-only type stripping, which only erases types and
+    // cannot emit code. This flag rejects the syntax that would blow up there
+    // (parameter properties, enums, namespaces), so it is load-bearing.
+    "erasableSyntaxOnly": true,
+    // Node's loader also resolves import specifiers literally, so one module
+    // importing another writes "./schedule-core.ts".
+    "allowImportingTsExtensions": true,
+    "verbatimModuleSyntax": true
+  },
+  "include": ["extensions/**/*.ts"]
+}
