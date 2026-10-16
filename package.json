@@ -1,0 +1,22 @@
+{
+  "name": "pi-goal",
+  "version": "0.1.0",
+  "description": "Time-boxed goals for pi: keep the agent working until a check passes or a judge agrees, with the remaining budget injected between tool calls.",
+  "keywords": ["pi-package", "goal", "timebox", "agent-loop"],
+  "license": "MIT",
+  "author": "Eric Boehs",
+  "repository": { "type": "git", "url": "git+https://github.com/ericboehs/pi-goal.git" },
+  "type": "module",
+  "engines": { "node": ">=22.18.0" },
+  "scripts": {
+    "test": "node --test test/*.test.mjs",
+    "typecheck": "tsc -p ."
+  },
+  "peerDependencies": { "@earendil-works/pi-coding-agent": "*", "typebox": "*" },
+  "//peerDependenciesMeta": "Optional so pi's git installer, which runs a plain `npm install` in the clone, does not pull a copy of pi in behind it. pi supplies both at runtime; CI installs them only to typecheck.",
+  "peerDependenciesMeta": { "@earendil-works/pi-coding-agent": { "optional": true }, "typebox": { "optional": true } },
+  "pi": {
+    "//": "Explicit path, not the extensions/ convention: lib/ holds pure modules that are imported, not loaded as extensions.",
+    "extensions": ["extensions/goal.ts"]
+  }
+}
