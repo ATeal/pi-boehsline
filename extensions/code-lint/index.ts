@@ -3,7 +3,7 @@ import { execFile } from "node:child_process";
 import { fileURLToPath } from "node:url";
 
 const LINT_HOOK = fileURLToPath(
-  new URL("../../plugins/code-lint/hooks/lint.sh", import.meta.url),
+  new URL("./lint.sh", import.meta.url),
 );
 const MAX_HOOK_OUTPUT_BYTES = 50 * 1024;
 
