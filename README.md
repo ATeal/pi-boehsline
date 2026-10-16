@@ -201,8 +201,8 @@ Only your own file can turn opt-in extensions on. A package can supply settings 
 Remotes aren't stored in git. Set them up once per clone:
 
 ```bash
-git remote add agent-link-upstream https://github.com/alonw0/pi-claude-link.git
-git remote add approval-guardian-upstream https://github.com/mics8128/pi-approval-guardian.git
+git remote add --no-tags agent-link-upstream https://github.com/alonw0/pi-claude-link.git
+git remote add --no-tags approval-guardian-upstream https://github.com/mics8128/pi-approval-guardian.git
 ```
 
 Pull upstream changes into a subtree:
