@@ -1,0 +1,35 @@
+name: test
+
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        # Tests import lib/core.ts under Node's strip-only type stripping (>= 22.18).
+        node: ['22.18', '24', '26']
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ matrix.node }}
+      - name: Test
+        run: node --test test/*.test.mjs
+
+  typecheck:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+      # pi and typebox are peers supplied at runtime; CI installs them only to typecheck.
+      - name: Install typecheck deps
+        run: npm install --no-save typescript@5 @types/node @earendil-works/pi-coding-agent typebox
+      - name: Typecheck
+        run: npx tsc -p tsconfig.json
