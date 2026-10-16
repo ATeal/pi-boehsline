@@ -326,7 +326,11 @@ export default function piMeshExtension(pi: ExtensionAPI) {
     if (!peers.length) return;
     const mentions = findAgentMentions(prompt, peers);
     if (!mentions.length) return;
-    return { systemPrompt: `${event.systemPrompt}\n\n${mentionHint(mentions)}` };
+    // A hidden message for this run, not a replaced system prompt: a
+    // replacement re-renders the prompt from base options, which differs from
+    // the transcript's sections and busts the prompt cache on this turn and
+    // the next. The message lands after the prompt, so the prefix stays cached.
+    return { message: { customType: "agent-link-mentions", content: mentionHint(mentions), display: false } };
   });
   pi.on("turn_start", async (_e, ctx) => {
     lastCtx = ctx;
