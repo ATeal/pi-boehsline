@@ -88,7 +88,7 @@ Scheduled prompts. **Commands:** `/loop` and `/once` (for this session); `/sched
 Lets pi and Claude Code sessions on the same machine talk to each other. Address a live session with `@name`; you can list sessions, send messages, ask and wait, and reply. **Command:** `/agent-link`. *(Bundled from pi-agent-link, a fork of [alonw0/pi-claude-link](https://github.com/alonw0/pi-claude-link).)*
 
 #### boehsline
-Shows and changes what Boehsline loads, and applies its default keybindings. **Command:** `/boehsline [enable|disable <name> | config | defaults [--force]]`.
+Shows and changes what Boehsline loads, and applies its default keybindings. `/boehsline` opens a menu: toggle opt-in extensions (saved, with one reload, when you close it), apply the default keybindings, or show the merged config. **Command:** `/boehsline [enable|disable <name> | config | defaults [--force]]`.
 
 ### Opt-in
 
