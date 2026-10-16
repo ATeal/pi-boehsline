@@ -22,7 +22,7 @@ import nextSteps, {
   parseNextSteps,
   removeStep,
   resolveSelection,
-} from "../extensions/next-steps.ts";
+} from "../extensions/next-steps/index.ts";
 
 const REPLY = `Checked the switch logs and the Pi's own counters.
 
@@ -43,7 +43,7 @@ Which one do you want?`;
 const STEPS = parseNextSteps(REPLY);
 
 async function mount(replies = [REPLY]) {
-  const url = new URL("../extensions/next-steps.ts", import.meta.url);
+  const url = new URL("../extensions/next-steps/index.ts", import.meta.url);
   url.search = `?t=${Math.random()}`;
   const extension = (await import(url.href)).default;
 

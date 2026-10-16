@@ -6,7 +6,7 @@ one operator-owned order. The model never picks a vendor.
 - `config.ts` — persisted settings, chain state, key resolution
 - `search.ts` — the backends, the failover chain, and the `/web test` probe
 
-The fetch ladder lives next door in `../web-fetch-resilient/`; the two share a
+The fetch ladder lives next door in `../fetch/`; the two share a
 cool-off table, because Firecrawl bills both from one pool. TinyFish is a fetch
 tier only — see "Why TinyFish is not in the search chain" below.
 
@@ -537,7 +537,7 @@ path (a one-name `order`). Firecrawl and Safari are skipped unless you ask for
 `/web test all`, because one bills a credit and the other opens a window, and a
 diagnostic you hesitate to run is one you stop running. That is a liveness
 check; scored quality across hostile pages lives in
-`../web-fetch-resilient/eval.ts`.
+`../fetch/eval.ts`.
 
 ## Adding a backend
 

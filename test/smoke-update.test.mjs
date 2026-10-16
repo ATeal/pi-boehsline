@@ -15,7 +15,7 @@ process.env.BOEHSLINE_ENABLE = "update";
 delete process.env.PI_SKIP_VERSION_CHECK;
 delete process.env.PI_OFFLINE;
 
-const { default: update, projectRoot } = await import("../extensions/opt-in/update.ts");
+const { default: update, projectRoot } = await import("../extensions/opt-in/update/index.ts");
 
 test("update registers /update, the banner renderer and a startup check; it silences pi's own check", () => {
 	const s = stubPi();

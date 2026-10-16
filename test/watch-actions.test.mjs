@@ -26,7 +26,7 @@ import {
 	snoozeEnd,
 } from "../extensions/opt-in/watch/actions.ts";
 import { addMute, muteFor, muteLabel, newPolicy, removeMute, rollPolicy, rulesText } from "../extensions/opt-in/watch/policy.ts";
-import { buildTriageUser, carryOver, needsList, senderLines, senderStats, waitLine, widgetLines } from "../extensions/opt-in/watch.ts";
+import { buildTriageUser, carryOver, needsList, senderLines, senderStats, waitLine, widgetLines } from "../extensions/opt-in/watch/index.ts";
 
 const T = 1791302400; // 2026-10-06 ~09:00 CDT
 function item(over = {}) {

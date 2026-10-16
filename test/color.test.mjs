@@ -14,7 +14,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 
-import color, { sessionColorAnsi } from "../extensions/color.ts";
+import color, { sessionColorAnsi } from "../extensions/color/index.ts";
 
 const BORDER_TOKENS = [
   "thinkingOff",

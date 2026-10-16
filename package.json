@@ -39,11 +39,9 @@
     }
   },
   "pi": {
-    "//": "Explicit globs: lib/ holds imported modules, not extensions. Opt-in extensions are declared like the rest and gate themselves (lib/opt-in.ts), because pi settings filters can only narrow what a manifest declares. packages/* are git subtrees kept verbatim (so `git subtree pull` stays clean); list their entry files here instead of restructuring them.",
+    "//": "Explicit globs: each extension is a folder with index.ts and a README.md; lib/ holds imported modules, not extensions. Opt-in extensions are declared like the rest and gate themselves (lib/opt-in.ts), because pi settings filters can only narrow what a manifest declares. packages/* are git subtrees kept verbatim (so `git subtree pull` stays clean); list their entry files here instead of restructuring them.",
     "extensions": [
-      "extensions/*.ts",
       "extensions/*/index.ts",
-      "extensions/opt-in/*.ts",
       "extensions/opt-in/*/index.ts",
       "packages/context/index.ts",
       "packages/scheduler/extensions/*.ts",
@@ -67,7 +65,7 @@
     "playwright-core": "^1.55.0",
     "turndown": "^7.2.0"
   },
-  "//dependencies": "Runtime deps for extensions/web-fetch-resilient (web_fetch). pi installs root dependencies only, so nested package.json files don't count.",
+  "//dependencies": "Runtime deps for extensions/web/fetch (web_fetch). pi installs root dependencies only, so nested package.json files don't count.",
   "devDependencies": {
     "@types/jsdom": "^21.1.7",
     "@types/turndown": "^5.0.6"

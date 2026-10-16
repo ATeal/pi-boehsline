@@ -21,7 +21,7 @@ import test from "node:test";
 process.env.PI_CODING_AGENT_DIR = mkdtempSync(path.join(tmpdir(), "pi-agent-subagent-test-"));
 delete process.env.PI_SUBAGENT_CHILD;
 
-const { default: subagent } = await import("../extensions/subagent.ts");
+const { default: subagent } = await import("../extensions/subagent/index.ts");
 
 function mount({ active = ["read", "bash"], registered = ["read", "bash", "tool_search"] } = {}) {
   const handlers = new Map();

@@ -1,7 +1,7 @@
 /**
  * Session canvas: a live local web page for each pi session.
  *
- * - One shared daemon (canvas/daemon.mjs) serves http://127.0.0.1:8790, an
+ * - One shared daemon (daemon.mjs) serves http://127.0.0.1:8790, an
  *   index at / and one page per session at /s/<session-id>. It only reads
  *   ~/.pi/canvas/<session-id>/ and pushes changes over server-sent events.
  * - After each settled turn with tool calls, Haiku 5.5 rewrites the status
@@ -36,8 +36,8 @@ import { Type } from "typebox";
 export const PORT = Number(process.env.PI_CANVAS_PORT || 8790);
 export const STATUS_MODEL = process.env.PI_CANVAS_MODEL || "github-copilot/claude-haiku-5.5";
 const HERE = dirname(fileURLToPath(import.meta.url));
-const DAEMON = join(HERE, "canvas", "daemon.mjs");
-const PAGE = join(HERE, "canvas", "page.mjs");
+const DAEMON = join(HERE, "daemon.mjs");
+const PAGE = join(HERE, "page.mjs");
 
 const MAX_BODY = 2 * 1024 * 1024;
 const MAX_FILE = 20 * 1024 * 1024;

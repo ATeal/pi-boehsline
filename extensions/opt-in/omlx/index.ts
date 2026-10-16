@@ -2,7 +2,7 @@ import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { readdir, readFile } from "node:fs/promises";
 import { homedir } from "node:os";
 import { join } from "node:path";
-import { optIn } from "../../lib/opt-in.ts";
+import { optIn } from "../../../lib/opt-in.ts";
 
 // Auto-register every model currently loaded in the local oMLX server so it
 // shows up in pi's /model picker. Re-runs on startup and on /reload.

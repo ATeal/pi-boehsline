@@ -50,7 +50,7 @@ function type(overlay, text) {
 
 /** Load a fresh copy: the extension keeps its offset and seen set in closure. */
 async function loadExtension() {
-  const url = new URL("../extensions/prompt-history.ts", import.meta.url);
+  const url = new URL("../extensions/prompt-history/index.ts", import.meta.url);
   url.search = `?t=${Math.random()}`;
   return (await import(url.href)).default;
 }

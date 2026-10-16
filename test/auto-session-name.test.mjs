@@ -18,7 +18,7 @@ import {
   sanitizeName,
   summarizeError,
   titleFromContent,
-} from "../extensions/auto-session-name.ts";
+} from "../extensions/auto-session-name/index.ts";
 
 test("empty and derived peer ids are not user-given", () => {
   assert.equal(isUserGivenName(undefined), false);

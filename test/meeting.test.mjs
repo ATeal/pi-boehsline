@@ -47,7 +47,7 @@ import {
 	TRIGGER,
 	upsertRecap,
 	widgetLines,
-} from "../extensions/opt-in/meeting.ts";
+} from "../extensions/opt-in/meeting/index.ts";
 
 const plain = { fg: (_color, s) => s };
 const Q = (id, overrides = {}) => ({ id, q: `question ${id}?`, why: "", at: 0, clock: "11:00", status: "open", ...overrides });

@@ -16,7 +16,7 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
 
-import aaInfo from "../extensions/aa-info.ts";
+import aaInfo from "../extensions/aa-info/index.ts";
 
 const SAMPLE = [
   {

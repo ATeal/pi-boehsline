@@ -21,8 +21,8 @@ process.env.TAVILY_API_KEY = "test-tavily";
 process.env.EXA_API_KEY = "test-exa";
 process.env.PERPLEXITY_API_KEY = "test-perplexity";
 
-const { clearSkips } = await import("../extensions/web-providers/config.ts");
-const { runSearchChain } = await import("../extensions/web-providers/search.ts");
+const { clearSkips } = await import("../extensions/web/providers/config.ts");
+const { runSearchChain } = await import("../extensions/web/providers/search.ts");
 
 const realFetch = globalThis.fetch;
 const deps = { codex: async () => ({ hits: [] }) };

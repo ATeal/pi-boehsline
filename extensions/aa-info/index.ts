@@ -74,7 +74,7 @@
  * couple of calls a day.
  *
  * The key resolves from $ARTIFICIAL_ANALYSIS_API_KEY, then the secret command
- * (lib/secrets.ts; `fnox get` by default), the same chain web-providers/config.ts uses. It is held only in
+ * (lib/secrets.ts; `fnox get` by default), the same chain web/providers/config.ts uses. It is held only in
  * memory and never logged or persisted. Data by artificialanalysis.ai — the
  * trailing (AA) is the attribution their free API terms ask for; a version
  * suffix (AA v4.3) names the cached cost-endpoint index on top of that.
@@ -83,7 +83,7 @@
 import { mkdir, readFile, rename, writeFile } from "node:fs/promises";
 import { homedir } from "node:os";
 import { dirname, join } from "node:path";
-import { readSecret, secretSourceLabel } from "../lib/secrets.ts";
+import { readSecret, secretSourceLabel } from "../../lib/secrets.ts";
 
 import type { ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-agent";
 

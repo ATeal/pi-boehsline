@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import { test } from "node:test";
 import { stubCtx, stubPi } from "./helpers/stub-pi.mjs";
 
-const { default: imagePreview } = await import("../extensions/image-preview.ts");
+const { default: imagePreview } = await import("../extensions/image-preview/index.ts");
 
 test("image-preview registers /preview and its hooks; session_start wraps read", async () => {
 	const s = stubPi();

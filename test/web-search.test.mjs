@@ -7,7 +7,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 
-import { agentCost, cooloffForStatus, costLabel, formatUsd, parseBraveMonthly, quotaLeft } from "../extensions/web-providers/search.ts";
+import { agentCost, cooloffForStatus, costLabel, formatUsd, parseBraveMonthly, quotaLeft } from "../extensions/web/providers/search.ts";
 
 test("reads the monthly half of Brave's paired remaining and limit headers", () => {
 	assert.equal(parseBraveMonthly("0, 1985"), 1985);

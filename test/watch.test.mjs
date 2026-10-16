@@ -17,7 +17,7 @@ import test from "node:test";
 
 import { visibleWidth } from "@earendil-works/pi-tui";
 
-import { upsertRecap } from "../extensions/opt-in/meeting.ts";
+import { upsertRecap } from "../extensions/opt-in/meeting/index.ts";
 import watch, {
 	age,
 	answeredBy,
@@ -75,7 +75,7 @@ import watch, {
 	watchSnapshot,
 	widgetLines,
 	WORK_WORKSPACES,
-} from "../extensions/opt-in/watch.ts";
+} from "../extensions/opt-in/watch/index.ts";
 import { estTokens, PROMPT_MAX_TOKENS } from "../extensions/opt-in/watch/models.ts";
 
 const ME = ["eric", "boehs"];

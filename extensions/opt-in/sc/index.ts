@@ -16,7 +16,7 @@ import { homedir } from "node:os";
 import { join } from "node:path";
 import { readFile, readdir, stat } from "node:fs/promises";
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
-import { optIn } from "../../lib/opt-in.ts";
+import { optIn } from "../../../lib/opt-in.ts";
 
 const DOWNLOADS = join(
   homedir(),

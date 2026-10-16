@@ -112,12 +112,12 @@ import type { Api, AssistantMessage, Model, ThinkingLevel } from "@earendil-work
 import { copyToClipboard, type ExtensionAPI, type ExtensionContext, type Theme } from "@earendil-works/pi-coding-agent";
 import { type AutocompleteItem, Text, truncateToWidth } from "@earendil-works/pi-tui";
 import { Type } from "typebox";
-import { isMe, mentionsMe, nameTokens, upsertRecap } from "./meeting.ts";
-import { APP_GROUPS, type AppGroup, type AppRoute, allowList, appFor, appsText, DEFAULT_APPS, pickGroups } from "./watch/apps.ts";
-import { applyWorkSettings, estTokens, isWorkModel, modelSpecs, PERSONAL_MODELS, PROMPT_MAX_TOKENS, WORK_LABEL, WORK_MODELS, workOnly } from "./watch/models.ts";
-import { compileRedactions, WATCH_DEFAULTS, WORK_DEFAULTS, type WatchSettings, type WorkSettings, watchSettings, workSettings } from "./watch/settings.ts";
-import { type NotifEvent, type NotifHandle, type NotifStatus, notifProblem, notifSummary, type Posted, superviseNotifWatch } from "./watch/notif.ts";
-import { actGuard, actPrompt, registerLookup } from "./watch/act.ts";
+import { isMe, mentionsMe, nameTokens, upsertRecap } from "../meeting/index.ts";
+import { APP_GROUPS, type AppGroup, type AppRoute, allowList, appFor, appsText, DEFAULT_APPS, pickGroups } from "./apps.ts";
+import { applyWorkSettings, estTokens, isWorkModel, modelSpecs, PERSONAL_MODELS, PROMPT_MAX_TOKENS, WORK_LABEL, WORK_MODELS, workOnly } from "./models.ts";
+import { compileRedactions, WATCH_DEFAULTS, WORK_DEFAULTS, type WatchSettings, type WorkSettings, watchSettings, workSettings } from "./settings.ts";
+import { type NotifEvent, type NotifHandle, type NotifStatus, notifProblem, notifSummary, type Posted, superviseNotifWatch } from "./notif.ts";
+import { actGuard, actPrompt, registerLookup } from "./act.ts";
 import {
 	bursts,
 	defaultVerb,
@@ -138,7 +138,7 @@ import {
 	TICKET,
 	type Verb,
 	type WaitVerb,
-} from "./watch/actions.ts";
+} from "./actions.ts";
 import {
 	awayCases,
 	awayIdleSec,
@@ -178,7 +178,7 @@ import {
 	urgentCase,
 	wakesText,
 	workHoursAt,
-} from "./watch/policy.ts";
+} from "./policy.ts";
 import {
 	clearNotifs,
 	goneAfterReplay,
@@ -188,9 +188,9 @@ import {
 	notifKey,
 	notifKind,
 	sameNotif,
-} from "./watch/notifs.ts";
-import { icalTime, PREP_SKIP_WORDS, parseAgenda, skipPattern, workCalendarIds } from "./watch/prep.ts";
-import { optIn } from "../../lib/opt-in.ts";
+} from "./notifs.ts";
+import { icalTime, PREP_SKIP_WORDS, parseAgenda, skipPattern, workCalendarIds } from "./prep.ts";
+import { optIn } from "../../../lib/opt-in.ts";
 
 // ── config ───────────────────────────────────────────────────────────────────
 
@@ -309,8 +309,8 @@ const OLD_MSG_TYPE = "watch-slack";
 const WIDGET_KEY = "watch";
 const APPS_SPEC = process.env.PI_WATCH_APPS ?? DEFAULT_APPS;
 /** Boehsline builds notif-watch here (scripts/build-notif-watch.sh); see notifBin(). */
-const BUNDLED_NOTIF_BIN = fileURLToPath(new URL("../../bin/notif-watch", import.meta.url));
-const NOTIF_BUILD = fileURLToPath(new URL("../../scripts/build-notif-watch.sh", import.meta.url));
+const BUNDLED_NOTIF_BIN = fileURLToPath(new URL("../../../bin/notif-watch", import.meta.url));
+const NOTIF_BUILD = fileURLToPath(new URL("../../../scripts/build-notif-watch.sh", import.meta.url));
 /** Banners wake a Slack read no more than once a minute; the loop's own cadence still runs. */
 export const WAKE_GAP_MS = 60_000;
 /** Notifications held in memory (on screen now, allowed apps only), newest kept. */

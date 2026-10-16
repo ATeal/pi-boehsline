@@ -13,7 +13,7 @@ process.env.OMLX_MODEL_DIR = join(dir, "models");
 mkdirSync(join(dir, "models", "Gemma-Vision"), { recursive: true });
 writeFileSync(join(dir, "models", "Gemma-Vision", "config.json"), JSON.stringify({ vision_config: {}, max_position_embeddings: 65536, model_type: "gemma3" }));
 
-const { default: omlx } = await import("../extensions/opt-in/omlx.ts");
+const { default: omlx } = await import("../extensions/opt-in/omlx/index.ts");
 const realFetch = globalThis.fetch;
 const serve = (body) => { globalThis.fetch = async () => new Response(JSON.stringify(body), { status: 200 }); };
 

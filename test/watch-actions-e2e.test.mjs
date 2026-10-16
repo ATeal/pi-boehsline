@@ -115,7 +115,7 @@ test("acting on the list: bursts, mutes, sender counts, snoozes, the picker and 
 		for (const [k, v] of Object.entries(saved)) v === undefined ? delete process.env[k] : (process.env[k] = v);
 	});
 	t.mock.timers.enable({ apis: ["Date"], now: NOW });
-	const { default: watch, ledgerLatest } = await import(`../extensions/opt-in/watch.ts?actions=${Date.now()}`);
+	const { default: watch, ledgerLatest } = await import(`../extensions/opt-in/watch/index.ts?actions=${Date.now()}`);
 
 	const handlers = {};
 	const commands = {};

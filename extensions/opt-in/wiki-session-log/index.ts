@@ -2,8 +2,8 @@ import { spawn } from "node:child_process";
 import { homedir } from "node:os";
 import { join } from "node:path";
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
-import { settingsFor } from "../../lib/config.ts";
-import { optIn } from "../../lib/opt-in.ts";
+import { settingsFor } from "../../../lib/config.ts";
+import { optIn } from "../../../lib/opt-in.ts";
 
 // After each settled turn (and at shutdown), run a command with this session's
 // JSONL path, so an outside tool can mirror pi sessions into a wiki or notes

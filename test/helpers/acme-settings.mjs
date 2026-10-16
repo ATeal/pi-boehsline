@@ -9,7 +9,7 @@ import { fileURLToPath } from "node:url";
 process.env.BOEHSLINE_CONFIG = fileURLToPath(new URL("../fixtures/acme-boehsline.json", import.meta.url));
 process.env.BOEHSLINE_ENABLE = "watch,meeting";
 
-const { applySettings } = await import("../../extensions/opt-in/watch.ts");
-const { applyMeetingSettings } = await import("../../extensions/opt-in/meeting.ts");
+const { applySettings } = await import("../../extensions/opt-in/watch/index.ts");
+const { applyMeetingSettings } = await import("../../extensions/opt-in/meeting/index.ts");
 applySettings();
 applyMeetingSettings();

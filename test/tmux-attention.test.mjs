@@ -27,7 +27,7 @@ const BG_RESPONSE_SCHEMA = "pi-background-tasks.extension-response.v1";
 async function loadExtension() {
   // Opt-in extension: enable it for this process (lib/config.ts reads this per call).
   process.env.BOEHSLINE_ENABLE = "tmux-attention";
-  const url = new URL("../extensions/opt-in/tmux-attention.ts", import.meta.url);
+  const url = new URL("../extensions/opt-in/tmux-attention/index.ts", import.meta.url);
   url.search = `?t=${Math.random()}`;
   return (await import(url.href)).default;
 }

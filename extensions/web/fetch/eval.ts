@@ -13,7 +13,7 @@
  * will do, and tiers that fail on disjoint pages make that suggestion
  * misleading in the optimistic direction.
  *
- * The search-side counterpart is ../web-providers/eval.mjs. That one mirrors
+ * The search-side counterpart is ../providers/eval.mjs. That one mirrors
  * search.ts's rendering by hand; this one does not have to, because
  * resilientFetch already returns the finished, extracted, truncated string.
  * Measuring anything earlier than that is measuring the wrong boundary: a raw
@@ -96,7 +96,7 @@ const value = (name: string) => {
 const LADDER = flag("--ladder");
 
 // Keys are read here and handed down, so fetch-core keeps owning no secrets.
-const { resolveKey, loadConfig, activeChain } = await import("../web-providers/config.ts");
+const { resolveKey, loadConfig, activeChain } = await import("../providers/config.ts");
 
 let tiers: FetchTierName[];
 if (LADDER) {

@@ -10,7 +10,7 @@ for (const k of Object.keys(process.env)) if (/^PI_(WATCH|MEETING)_/.test(k)) de
 
 const { registerSource, sources } = await import("../lib/config.ts");
 const { compileRedactions, watchSettings, workSettings, meetingSettings, expandHome } = await import("../extensions/opt-in/watch/settings.ts");
-const watch = await import("../extensions/opt-in/watch.ts");
+const watch = await import("../extensions/opt-in/watch/index.ts");
 const models = await import("../extensions/opt-in/watch/models.ts");
 
 beforeEach(() => sources().clear());

@@ -13,7 +13,7 @@
  *  7. Obscura (Rust/V8) via CLI — stateless local render; off by default
  *     (see config.ts), slot reserved between curl and Chrome
  *
- * The ladder is operator-ordered (see web-providers/config.ts). Names map to
+ * The ladder is operator-ordered (see providers/config.ts). Names map to
  * fixed tier numbers so result footers stay comparable across orderings.
  *
  * Deny/challenge detection is explicit: a 200 that is actually a challenge
@@ -25,7 +25,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { browserHeaders, userAgentString } from "./ua.ts";
 import { navigateAndGet, sameOriginFetch, shutdownBrowser } from "./browser.ts";
-import { secretSourceLabel } from "../../lib/secrets.ts";
+import { secretSourceLabel } from "../../../lib/secrets.ts";
 
 export { shutdownBrowser };
 

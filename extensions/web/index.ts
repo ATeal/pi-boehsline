@@ -2,7 +2,7 @@ import { getMarkdownTheme, type ExtensionAPI, type ExtensionContext } from "@ear
 import { Type } from "typebox";
 import { spawn } from "node:child_process";
 import { Markdown, Text } from "@earendil-works/pi-tui";
-import { probeFetchTiers, resilientFetch } from "./web-fetch-resilient/fetch-core.ts";
+import { probeFetchTiers, resilientFetch } from "./fetch/fetch-core.ts";
 import {
   activeChain,
   clearSkips,
@@ -21,8 +21,8 @@ import {
   type Format,
   type SearchBackend,
   type WebConfig,
-} from "./web-providers/config.ts";
-import { cooloffForStatus, costLabel, probeBackends, runSearchChain, SEARCH_INDEX } from "./web-providers/search.ts";
+} from "./providers/config.ts";
+import { cooloffForStatus, costLabel, probeBackends, runSearchChain, SEARCH_INDEX } from "./providers/search.ts";
 
 const CODEX_URL = "https://chatgpt.com/backend-api/codex/responses";
 // Plain OpenAI API keys speak the same Responses API shape, just at the
@@ -419,7 +419,7 @@ const TEST_QUERY = "what is the capital of France";
 /**
  * A liveness probe, not a quality one: every tier must be able to reach and
  * extract this, so any FAIL is about the tier rather than the page. Quality
- * across hostile pages is what web-fetch-resilient/eval.ts is for.
+ * across hostile pages is what fetch/eval.ts is for.
  */
 const FETCH_TEST_URL = "https://example.com/";
 

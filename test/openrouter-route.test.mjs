@@ -16,7 +16,7 @@ import openrouterRoute, {
   extractRoute,
   isOpenRouterCompletion,
   wrapFetch,
-} from "../extensions/openrouter-route.ts";
+} from "../extensions/openrouter-route/index.ts";
 
 const COMPLETIONS = "https://openrouter.ai/api/v1/chat/completions";
 

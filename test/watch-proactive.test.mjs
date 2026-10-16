@@ -68,7 +68,7 @@ test("one loop: prep acts with a guarded turn, the urgent draft waits, /watch do
 		for (const [k, v] of Object.entries(saved)) v === undefined ? delete process.env[k] : (process.env[k] = v);
 	});
 	t.mock.timers.enable({ apis: ["Date"], now: NOW });
-	const { default: watch } = await import(`../extensions/opt-in/watch.ts?proactive=${Date.now()}`);
+	const { default: watch } = await import(`../extensions/opt-in/watch/index.ts?proactive=${Date.now()}`);
 
 	const handlers = {};
 	const commands = {};

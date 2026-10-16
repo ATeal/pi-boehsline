@@ -27,7 +27,7 @@ function recorder() {
 for (const name of OPT_INS) {
 	test(`${name}: off by default, registers nothing`, async () => {
 		delete process.env.BOEHSLINE_ENABLE;
-		const mod = await import(`../extensions/opt-in/${name}.ts?off=${Math.random()}`);
+		const mod = await import(`../extensions/opt-in/${name}/index.ts?off=${Math.random()}`);
 		const { pi, calls } = recorder();
 		await mod.default(pi);
 		assert.deepEqual(calls, []);
@@ -40,7 +40,7 @@ test("tmux-attention: enabled via BOEHSLINE_ENABLE, it registers handlers", asyn
 	process.env.BOEHSLINE_ENABLE = "tmux-attention";
 	process.env.TMUX_PANE = "%9";
 	try {
-		const mod = await import(`../extensions/opt-in/tmux-attention.ts?on=${Math.random()}`);
+		const mod = await import(`../extensions/opt-in/tmux-attention/index.ts?on=${Math.random()}`);
 		const { pi, calls } = recorder();
 		await mod.default(pi);
 		assert.ok(calls.length > 0);

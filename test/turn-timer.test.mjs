@@ -8,7 +8,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 
-import { formatFinishedTime, formatSummary, workingMessage } from "../extensions/turn-timer.ts";
+import { formatFinishedTime, formatSummary, workingMessage } from "../extensions/turn-timer/index.ts";
 
 /** A RunState with every field pinned; tests override what they exercise. */
 function runState(overrides = {}) {

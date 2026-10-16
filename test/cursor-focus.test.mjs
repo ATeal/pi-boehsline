@@ -15,7 +15,7 @@ import test from "node:test";
 const FAKE_CURSOR_LINE = "type here\x1b[7m \x1b[0m";
 
 async function mount() {
-  const url = new URL("../extensions/cursor-focus.ts", import.meta.url);
+  const url = new URL("../extensions/cursor-focus/index.ts", import.meta.url);
   url.search = `?t=${Math.random()}`;
   const extension = (await import(url.href)).default;
 

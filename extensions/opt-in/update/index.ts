@@ -26,8 +26,8 @@ import { dirname, join } from "node:path";
 
 import { DynamicBorder, VERSION, type ExtensionAPI, type Theme } from "@earendil-works/pi-coding-agent";
 import { Container, Text, getCapabilities, hyperlink, type AutocompleteItem } from "@earendil-works/pi-tui";
-import { settingsFor } from "../../lib/config.ts";
-import { optIn } from "../../lib/opt-in.ts";
+import { settingsFor } from "../../../lib/config.ts";
+import { optIn } from "../../../lib/opt-in.ts";
 
 const UPDATE_DEFAULTS = { dir: "", task: "update:pi" };
 function updateSettings(): { dir: string; task: string } {

@@ -1,7 +1,7 @@
 // Re-runnable quality eval for the web_search provider chain.
 //
-//   node web-providers/eval.mjs          # brave, tavily, exa
-//   node web-providers/eval.mjs --paid   # adds octen and perplexity
+//   node extensions/web/providers/eval.mjs          # brave, tavily, exa
+//   node extensions/web/providers/eval.mjs --paid   # adds octen and perplexity
 //
 // Keys come from the environment: BRAVE_AI_API_KEY, TAVILY_API_KEY, EXA_API_KEY,
 // plus OCTEN_API_KEY and PERPLEXITY_API_KEY for --paid. The run prints the API

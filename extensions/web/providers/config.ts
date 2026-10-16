@@ -8,7 +8,7 @@
 import { chmod, mkdir, readFile, rename, writeFile } from "node:fs/promises";
 import { homedir } from "node:os";
 import { join } from "node:path";
-import { readSecret, secretSourceLabel } from "../../lib/secrets.ts";
+import { readSecret, secretSourceLabel } from "../../../lib/secrets.ts";
 
 export const SEARCH_BACKENDS = ["brave", "tavily", "exa", "firecrawl", "codex", "perplexity"] as const;
 export const FETCH_TIERS = ["plain", "curl", "obscura", "chrome", "safari", "firecrawl", "tinyfish"] as const;

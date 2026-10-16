@@ -31,7 +31,7 @@ import footer, {
   minutesUntilClock,
   readFooterConfig,
   writeFooterConfig,
-} from "../extensions/footer.ts";
+} from "../extensions/footer/index.ts";
 
 const PORCELAIN = "A  staged.ts\n M edited.ts\n?? new.ts\n";
 

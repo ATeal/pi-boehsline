@@ -27,7 +27,7 @@ Object.assign(process.env, {
 delete process.env.PI_MEETING_MODEL;
 delete process.env.PI_MEETING_RESEARCH_MODEL;
 
-const { default: meeting, buildUserPrompt, fitUserPrompt, researchModel, ruleAlert, widgetLines } = await import("../extensions/opt-in/meeting.ts");
+const { default: meeting, buildUserPrompt, fitUserPrompt, researchModel, ruleAlert, widgetLines } = await import("../extensions/opt-in/meeting/index.ts");
 const { estTokens, isWorkModel, modelSpecs, PERSONAL_MODELS, PROMPT_MAX_TOKENS, WORK_MODELS, WORK_RESEARCH_MODEL, workOnly } = await import(
 	"../extensions/opt-in/watch/models.ts"
 );
@@ -51,7 +51,7 @@ test("only Acme Copilot may read work text", () => {
 });
 
 test("meeting.ts names no model outside Acme Copilot", () => {
-	const src = fs.readFileSync(fileURLToPath(new URL("../extensions/opt-in/meeting.ts", import.meta.url)), "utf8");
+	const src = fs.readFileSync(fileURLToPath(new URL("../extensions/opt-in/meeting/index.ts", import.meta.url)), "utf8");
 	assert.doesNotMatch(src, /deepseek|opencode|glm-|openrouter/i);
 });
 

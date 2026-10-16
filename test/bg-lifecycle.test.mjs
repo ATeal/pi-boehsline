@@ -21,7 +21,7 @@ after(() => rmSync(dir, { recursive: true, force: true }));
 async function mount(t, { mode = "tui", wake = "followUp" } = {}) {
   // Each wake policy is read at module load; query imports isolate the constants.
   process.env.PI_BG_WAKE = wake;
-  const { default: backgroundTasks } = await import(`../extensions/bg.ts?wake=${wake}`);
+  const { default: backgroundTasks } = await import(`../extensions/bg/index.ts?wake=${wake}`);
   t.mock.timers.enable({ apis: ["Date", "setInterval", "setTimeout"], now: 0 });
 
   const children = [];

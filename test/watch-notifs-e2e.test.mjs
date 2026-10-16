@@ -88,7 +88,7 @@ test("notifications become items: routed by app, one per message, cleared when g
 	t.after(() => {
 		for (const [k, v] of Object.entries(saved)) v === undefined ? delete process.env[k] : (process.env[k] = v);
 	});
-	const mod = await import(`../extensions/opt-in/watch.ts?notifs=${Date.now()}`);
+	const mod = await import(`../extensions/opt-in/watch/index.ts?notifs=${Date.now()}`);
 	const { default: watch, ledgerLatest } = mod;
 
 	const handlers = {};

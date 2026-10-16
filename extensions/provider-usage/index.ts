@@ -31,7 +31,7 @@ import { spawn } from "node:child_process";
 import { mkdir, readFile, rename, rm, stat, writeFile } from "node:fs/promises";
 import { homedir } from "node:os";
 import { join } from "node:path";
-import { readSecret, secretSourceLabel } from "../lib/secrets.ts";
+import { readSecret, secretSourceLabel } from "../../lib/secrets.ts";
 
 const REQUEST_TIMEOUT_MS = 10_000;
 const SLOW_BILLING_TIMEOUT_MS = 30_000;

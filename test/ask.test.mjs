@@ -13,7 +13,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 
-import askExtension, { buildItems, formatAnswerLines, formatRpcLabel, initialMultiValues, initialSingleValue, parseMultiPicks } from "../extensions/ask.ts";
+import askExtension, { buildItems, formatAnswerLines, formatRpcLabel, initialMultiValues, initialSingleValue, parseMultiPicks } from "../extensions/ask/index.ts";
 
 test("buildItems numbers labels and appends the custom row", () => {
 	const items = buildItems([
@@ -343,7 +343,7 @@ test("execute errors instead of prompting without UI or params", async () => {
 });
 
 async function mountModule() {
-	const url = new URL("../extensions/ask.ts", import.meta.url);
+	const url = new URL("../extensions/ask/index.ts", import.meta.url);
 	url.search = `?t=${Math.random()}`;
 	const mod = await import(url.href);
 	let tool;

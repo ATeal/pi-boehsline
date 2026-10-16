@@ -19,7 +19,7 @@ writeFileSync(
   JSON.stringify({ shellCommandPrefix: "export PI_BG_TEST_PREFIX=present" }),
 );
 
-const { default: backgroundTasks } = await import("../extensions/bg.ts");
+const { default: backgroundTasks } = await import("../extensions/bg/index.ts");
 
 function mount() {
   const tools = new Map();

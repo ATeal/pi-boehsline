@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import { optIns } from "../lib/config.ts";
-import { menuItems } from "../extensions/boehsline.ts";
+import { menuItems } from "../extensions/boehsline/index.ts";
 
 test("menu: one on/off row per opt-in, sorted, then the action rows", () => {
 	optIns().set("zeta", { name: "zeta", description: "Z", on: false });
@@ -22,12 +22,12 @@ test("menu: one on/off row per opt-in, sorted, then the action rows", () => {
 });
 
 test("bundled packages: loaded when one of their files registered a command", async () => {
-	const { bundledPackages } = await import("../extensions/boehsline.ts");
+	const { bundledPackages } = await import("../extensions/boehsline/index.ts");
 	const root = new URL("..", import.meta.url).pathname;
 	const pkgs = bundledPackages([
 		{ name: "context", sourceInfo: { path: `${root}packages/context/index.ts` } },
-		{ name: "approval-guardian", sourceInfo: { path: `${root}extensions/opt-in/approval-guardian.ts` } },
-		{ name: "stash", sourceInfo: { path: `${root}extensions/stash.ts` } },
+		{ name: "approval-guardian", sourceInfo: { path: `${root}extensions/opt-in/approval-guardian/index.ts` } },
+		{ name: "stash", sourceInfo: { path: `${root}extensions/stash/index.ts` } },
 	]);
 	assert.deepEqual(pkgs.map((p) => p.dir), ["agent-link", "approval-guardian", "context", "goal", "scheduler"]);
 	const by = Object.fromEntries(pkgs.map((p) => [p.dir, p]));

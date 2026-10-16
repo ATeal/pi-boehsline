@@ -2,7 +2,7 @@
  * Unit tests for the web_fetch ladder's JS-shell detection.
  *
  *   bin/pi-ext-check --test-only
- *   node --test .pi-agent/test/web-fetch-resilient.test.mjs
+ *   node --test test/web-fetch-resilient.test.mjs
  */
 import assert from "node:assert/strict";
 import test from "node:test";
@@ -12,7 +12,7 @@ import {
 	looksLikeAuthWall,
 	looksLikeJsShell,
 	thinFloor,
-} from "../extensions/web-fetch-resilient/fetch-core.ts";
+} from "../extensions/web/fetch/fetch-core.ts";
 
 // Captured 2026-08-26 from
 // https://www.gatesnotes.com/a-turbulent-ai-era-and-critical-choices-to-make

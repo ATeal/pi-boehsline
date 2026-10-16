@@ -7,7 +7,7 @@ import { beforeEach, test } from "node:test";
 process.env.BOEHSLINE_CONFIG = join(mkdtempSync(join(tmpdir(), "boehsline-")), "none.json");
 process.env.BOEHSLINE_ENABLE = "wiki-session-log";
 const { registerSource, sources } = await import("../lib/config.ts");
-const wiki = await import("../extensions/opt-in/wiki-session-log.ts");
+const wiki = await import("../extensions/opt-in/wiki-session-log/index.ts");
 
 beforeEach(() => sources().clear());
 

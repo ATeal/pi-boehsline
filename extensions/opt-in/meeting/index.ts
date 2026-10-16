@@ -82,9 +82,9 @@ import * as path from "node:path";
 import type { Api, AssistantMessage, Model, ThinkingLevel } from "@earendil-works/pi-ai";
 import type { ExtensionAPI, ExtensionContext, Theme } from "@earendil-works/pi-coding-agent";
 import { type AutocompleteItem, Text, truncateToWidth, wrapTextWithAnsi } from "@earendil-works/pi-tui";
-import { applyWorkSettings, estTokens, isWorkModel, modelSpecs, PROMPT_MAX_TOKENS, WORK_LABEL, WORK_MODELS, WORK_RESEARCH_MODEL, workOnly } from "./watch/models.ts";
-import { MEETING_DEFAULTS, type MeetingSettings, meetingSettings, WORK_DEFAULTS, type WorkSettings, workSettings } from "./watch/settings.ts";
-import { optIn } from "../../lib/opt-in.ts";
+import { applyWorkSettings, estTokens, isWorkModel, modelSpecs, PROMPT_MAX_TOKENS, WORK_LABEL, WORK_MODELS, WORK_RESEARCH_MODEL, workOnly } from "../watch/models.ts";
+import { MEETING_DEFAULTS, type MeetingSettings, meetingSettings, WORK_DEFAULTS, type WorkSettings, workSettings } from "../watch/settings.ts";
+import { optIn } from "../../../lib/opt-in.ts";
 
 // ── config ───────────────────────────────────────────────────────────────────
 

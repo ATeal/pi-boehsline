@@ -29,10 +29,10 @@ import {
 	type SettingsListTheme,
 	truncateToWidth,
 } from "@earendil-works/pi-tui";
-import { loadConfig, optIns, readUserConfig, setEnabled, sources, userConfigPath } from "../lib/config.ts";
-import { changes, diffText, planDefaults, readFlat, unresolvedConflicts } from "../lib/defaults.ts";
+import { loadConfig, optIns, readUserConfig, setEnabled, sources, userConfigPath } from "../../lib/config.ts";
+import { changes, diffText, planDefaults, readFlat, unresolvedConflicts } from "../../lib/defaults.ts";
 
-const DEFAULT_KEYBINDINGS = new URL("../defaults/keybindings.json", import.meta.url);
+const DEFAULT_KEYBINDINGS = new URL("../../defaults/keybindings.json", import.meta.url);
 const keybindingsPath = () => join(getAgentDir(), "keybindings.json");
 
 /** Write through a symlink (dotfiles often link keybindings.json), atomically. */
@@ -100,7 +100,7 @@ function statusText(pi?: ExtensionAPI): string {
 	return lines.join("\n");
 }
 
-const ROOT = fileURLToPath(new URL("..", import.meta.url));
+const ROOT = fileURLToPath(new URL("../..", import.meta.url));
 const PACKAGES_DIR = join(ROOT, "packages");
 const VERSION: string = (() => {
 	try {
@@ -144,7 +144,7 @@ export function bundledPackages(commands: CommandSource[], packagesDir = PACKAGE
 		} catch {
 			// no manifest: the folder name stands in
 		}
-		const markers = [`/packages/${dir}/`, `/extensions/opt-in/${dir}.ts`, `/extensions/opt-in/${dir}/`];
+		const markers = [`/packages/${dir}/`, `/extensions/opt-in/${dir}/`];
 		const mine = commands
 			.filter((c) => markers.some((m) => (c.sourceInfo?.path ?? "").replaceAll("\\", "/").includes(m)))
 			.map((c) => `/${c.name}`);

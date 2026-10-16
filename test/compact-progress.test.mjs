@@ -9,7 +9,7 @@ import progress, {
   compactionTreeKind,
   patchTreeSelector,
   relabelCompactionRow,
-} from "../extensions/compact-progress.ts";
+} from "../extensions/compact-progress/index.ts";
 
 // pi awaits session_before_compact handlers one by one, in load (directory)
 // order. compaction/ spends the whole summary inside its handler, so the bar

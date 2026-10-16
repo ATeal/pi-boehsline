@@ -22,7 +22,7 @@ import {
   parseOpencodeGoUsage,
   resolveUsageDriver,
   summarizeUsageCache,
-} from "../extensions/provider-usage.ts";
+} from "../extensions/provider-usage/index.ts";
 
 // Shape of GET /console/api/go/status: microcents are bigints, so they arrive
 // as JSON strings; `month` carries no rolling window of its own.

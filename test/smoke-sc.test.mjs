@@ -12,7 +12,7 @@ process.env.BOEHSLINE_CONFIG = join(home, "none.json");
 process.env.BOEHSLINE_ENABLE = "sc";
 const downloads = join(home, "Library", "Mobile Documents", "com~apple~CloudDocs", "Downloads");
 
-const { default: sc } = await import("../extensions/opt-in/sc.ts");
+const { default: sc } = await import("../extensions/opt-in/sc/index.ts");
 
 function load() {
 	const s = stubPi();
