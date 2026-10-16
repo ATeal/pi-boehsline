@@ -2,7 +2,7 @@
 
 > The baseline for [pi](https://pi.dev). *(Say "bays-line.")*
 
-Boehsline is Eric Boehs's pi setup, packaged so anyone can install it: about 30 extensions plus skills and prompts, all in one package. Most extensions are on by default; the ones that only make sense with particular tools or habits are opt-in.
+Boehsline is Eric Boehs's pi setup, packaged so anyone can install it: more than 30 extensions in one package, plus the skills that come with agent-link. Most extensions are on by default; the ones that only make sense with particular tools or habits are opt-in.
 
 **Status:** early. The contents are still moving in from separate repos.
 
@@ -223,7 +223,6 @@ npm run typecheck              # links the pi you run (mise/npm -g); CI pins PI_
 npm test                       # node --test (Node >= 22.18)
 npm run build:notif-watch      # macOS: build bin/notif-watch (watch does this on /watch start)
 pi -ne -e .                    # try the working tree without your installed extensions
-scripts/sync-dotfiles.sh       # pull new dotfiles commits for moved extensions (until the switch)
 ```
 
 ## License

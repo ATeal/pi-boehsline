@@ -4,7 +4,7 @@
  *
  * Layers, lowest to highest precedence:
  *   1. Defaults written in each extension's code (neutral, nothing personal).
- *   2. Config sources: other packages, such as a private pi-boehsline-va,
+ *   2. Config sources: other packages, such as a private work companion,
  *      that register settings through the global registry below.
  *   3. The user file, ~/.pi/agent/boehsline.json (or $BOEHSLINE_CONFIG).
  *
@@ -26,7 +26,7 @@
  * Source contract (no Boehsline import needed):
  *
  *   const key = Symbol.for("boehsline.config.sources");
- *   ((globalThis as any)[key] ??= new Map()).set("pi-boehsline-va", { watch: { … } });
+ *   ((globalThis as any)[key] ??= new Map()).set("my-work-settings", { watch: { … } });
  *
  * Pure node: no pi imports, so tests run under plain `node --test`.
  */

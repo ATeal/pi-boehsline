@@ -26,7 +26,7 @@ test("empty and derived peer ids are not user-given", () => {
   assert.equal(isUserGivenName("   "), false);
   assert.equal(isUserGivenName("pi-dotfiles"), false);
   assert.equal(isUserGivenName("pi-dotfiles-2"), false);
-  assert.equal(isUserGivenName("pi-veterans-identification-card-vic-code"), false);
+  assert.equal(isUserGivenName("pi-customer-identity-card-lookup-code"), false);
 });
 
 test("real titles count as user-given", () => {

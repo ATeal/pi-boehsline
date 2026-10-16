@@ -52,10 +52,14 @@ function sessionPayload() {
   };
 }
 
+// One timestamp for the whole run: tests build a reply for the input and another
+// for the expected value, and a per-call Date.now() made those differ whenever
+// the millisecond ticked between them (a flake on busy CI runners).
+const REPLY_AT = Date.now();
 const reply = (text, stopReason = "stop") => ({
   id: "reply",
   type: "message",
-  message: { role: "assistant", content: [{ type: "text", text }], stopReason, timestamp: Date.now() },
+  message: { role: "assistant", content: [{ type: "text", text }], stopReason, timestamp: REPLY_AT },
 });
 
 // ---- thoughtless.ts (moved from thoughtless-compaction.ts) ----------------

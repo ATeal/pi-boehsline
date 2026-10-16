@@ -22,18 +22,18 @@ test("merge: objects deep-merge, arrays and scalars replace", () => {
 });
 
 test("comment keys (//) are dropped at every level", () => {
-	registerSource("va", { "//": "note", watch: { "// why": "x", a: 1 } });
+	registerSource("acme", { "//": "note", watch: { "// why": "x", a: 1 } });
 	assert.deepEqual(loadConfig({ "//": "mine" }), { watch: { a: 1 }, enable: [] });
 });
 
 test("precedence: source < user file", () => {
-	registerSource("va", { watch: { workspaces: ["dsva"], scout: "haiku" } });
+	registerSource("acme", { watch: { workspaces: ["acme"], scout: "haiku" } });
 	const config = loadConfig({ watch: { scout: "sonnet" } });
-	assert.deepEqual(config.watch, { workspaces: ["dsva"], scout: "sonnet" });
+	assert.deepEqual(config.watch, { workspaces: ["acme"], scout: "sonnet" });
 });
 
 test("sources cannot enable; only the user file can", () => {
-	registerSource("va", { enable: ["watch"] });
+	registerSource("acme", { enable: ["watch"] });
 	assert.equal(enabled("watch", loadConfig({})), false);
 	assert.equal(enabled("watch", loadConfig({ enable: ["watch"] })), true);
 });
@@ -45,16 +45,16 @@ test("a source registered without importing Boehsline (the documented contract) 
 });
 
 test("re-registering a source replaces it (reload safe)", () => {
-	registerSource("va", { a: 1 });
-	registerSource("va", { a: 2 });
+	registerSource("acme", { a: 1 });
+	registerSource("acme", { a: 2 });
 	assert.equal(sources().size, 1);
 	assert.equal(loadConfig({}).a, 2);
 });
 
 test("settingsFor merges the block over defaults", () => {
-	registerSource("va", { meeting: { qmd: ["wiki", "va-eert"] } });
+	registerSource("acme", { meeting: { qmd: ["wiki", "team-docs"] } });
 	assert.deepEqual(settingsFor("meeting", { qmd: ["wiki"], model: "x" }, loadConfig({})), {
-		qmd: ["wiki", "va-eert"],
+		qmd: ["wiki", "team-docs"],
 		model: "x",
 	});
 	assert.deepEqual(settingsFor("missing", { a: 1 }, loadConfig({})), { a: 1 });

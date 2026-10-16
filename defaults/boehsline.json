@@ -1,5 +1,5 @@
 {
-  "//": "Sample ~/.pi/agent/boehsline.json. `enable` turns opt-in extensions on; other keys are per-extension settings. Packages such as pi-boehsline-va can supply settings, and this file overrides them.",
+  "//": "Sample ~/.pi/agent/boehsline.json. `enable` turns opt-in extensions on; other keys are per-extension settings. Other packages (say, a private work companion) can supply settings, and this file overrides them.",
   "enable": ["omlx", "tmux-attention"],
   "wiki-session-log": { "dir": "~/Documents/Wiki/sessions" }
 }
