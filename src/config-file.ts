@@ -2,6 +2,7 @@ import {
 	existsSync,
 	mkdirSync,
 	readFileSync,
+	realpathSync,
 	renameSync,
 	writeFileSync,
 } from "node:fs";
@@ -23,7 +24,11 @@ export function readGuardianConfigObject(path: string): GuardianConfigObject {
 	return parsed as GuardianConfigObject;
 }
 
-/** Apply a mutation to a Guardian config file and write it atomically. */
+/**
+ * Apply a mutation to a Guardian config file and write it atomically. A
+ * symlinked config (dotfiles) is written through to its target: renaming onto
+ * the link itself would replace it with a regular file.
+ */
 export function updateGuardianConfigFile(
 	path: string,
 	mutate: (config: GuardianConfigObject) => void,
@@ -38,12 +43,13 @@ export function updateGuardianConfigFile(
 	) {
 		delete config.review;
 	}
-	mkdirSync(dirname(path), { recursive: true });
-	const temporaryPath = `${path}.${process.pid}.tmp`;
+	const target = existsSync(path) ? realpathSync(path) : path;
+	mkdirSync(dirname(target), { recursive: true });
+	const temporaryPath = `${target}.${process.pid}.tmp`;
 	writeFileSync(temporaryPath, `${JSON.stringify(config, null, 2)}\n`, {
 		mode: 0o600,
 	});
-	renameSync(temporaryPath, path);
+	renameSync(temporaryPath, target);
 	return config;
 }
 

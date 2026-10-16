@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { mkdtempSync, readFileSync, writeFileSync } from "node:fs";
+import { lstatSync, mkdtempSync, readFileSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test from "node:test";
@@ -105,6 +105,16 @@ test("config file updates preserve unknown keys and drop empty review", () => {
 	const fresh = join(tempAgentDir(), "nested", "approval-guardian.json");
 	updateGuardianConfigFile(fresh, (raw) => applySettingChange(raw, "model", "a/b"));
 	assert.deepEqual(readGuardianConfigObject(fresh), { model: "a/b" });
+});
+
+test("config file updates write through a symlink instead of replacing it", () => {
+	const dotfiles = tempAgentDir({ policy: "p" });
+	const target = join(dotfiles, "approval-guardian.json");
+	const link = join(tempAgentDir(), "approval-guardian.json");
+	symlinkSync(target, link);
+	updateGuardianConfigFile(link, (raw) => applySettingChange(raw, "model", "a/b"));
+	assert.equal(lstatSync(link).isSymbolicLink(), true, "link survives");
+	assert.deepEqual(JSON.parse(readFileSync(target, "utf8")), { policy: "p", model: "a/b" });
 });
 
 test("model filter matches every term as a substring", () => {
