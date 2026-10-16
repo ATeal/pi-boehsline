@@ -117,15 +117,19 @@ function main(pi: ExtensionAPI): void {
   // it to (a) exclude idle agents from the non-interactive-job heuristic —
   // we report "node" as our foreground command even when sitting still — and
   // (b) detect a harsh kill via kill -0 without ever spawning ps.
-  void pi
-    .exec(
-      "tmux",
-      ["set-option", "-p", "-t", TMUX_PANE, "@agent_pane", String(process.pid)],
-      { timeout: 1000 },
-    )
-    .catch(() => {
-      // Cosmetic only; status-daemon's tty check covers unmarked sessions.
-    });
+  // A second after boot: spawning tmux is ~5ms of main-thread work, and
+  // nothing reads the marker that early.
+  setTimeout(() => {
+    void pi
+      .exec(
+        "tmux",
+        ["set-option", "-p", "-t", TMUX_PANE, "@agent_pane", String(process.pid)],
+        { timeout: 1000 },
+      )
+      .catch(() => {
+        // Cosmetic only; status-daemon's tty check covers unmarked sessions.
+      });
+  }, 1_000).unref();
 
   const setAttention = async (on: boolean): Promise<void> => {
     try {

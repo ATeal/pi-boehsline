@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { mkdtempSync, writeFileSync } from "node:fs";
+import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
@@ -14,6 +14,10 @@ process.env.PI_BG_FG_TIMEOUT = "1";
 process.env.PI_BG_MAX_TIMEOUT = "0.5";
 process.env.PI_BG_WAKE = "off";
 process.env.PI_CODING_AGENT_DIR = mkdtempSync(path.join(tmpdir(), "pi-agent-bg-test-"));
+// Don't leave a temp dir per run behind (hundreds had piled up).
+process.on("exit", () => {
+	for (const d of [process.env.PI_BG_DIR, process.env.PI_CODING_AGENT_DIR]) rmSync(d, { recursive: true, force: true });
+});
 writeFileSync(
   path.join(process.env.PI_CODING_AGENT_DIR, "settings.json"),
   JSON.stringify({ shellCommandPrefix: "export PI_BG_TEST_PREFIX=present" }),

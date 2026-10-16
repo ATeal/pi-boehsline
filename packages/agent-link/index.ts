@@ -40,6 +40,15 @@ interface PendingReply { hops: number; who: string; receivedAt: number; preview:
 
 export default function piMeshExtension(pi: ExtensionAPI) {
   let started = false;
+  // start() runs off the boot path: session_start kicks it off without
+  // awaiting (it binds a socket and probes every live peer for a free name,
+  // ~60ms with a dozen sessions open). Anything that touches the peer record
+  // awaits this first.
+  let starting: Promise<void> | undefined;
+  const ensureStarted = (ctx: ExtensionContext): Promise<void> => {
+    if (!started) starting = start(ctx);
+    return starting ?? Promise.resolve();
+  };
   let server: Server | undefined;
   let sockPath = "";
   let ownFrom = "";
@@ -101,6 +110,7 @@ export default function piMeshExtension(pi: ExtensionAPI) {
   const activeTools = new Map<string, string>();
 
   async function setPeerStatus(status: string): Promise<void> {
+    await starting;
     if (!started || status === peerStatus) return;
     peerStatus = status;
     syncSummaryFile();
@@ -316,7 +326,7 @@ export default function piMeshExtension(pi: ExtensionAPI) {
   }
 
   pi.on("session_start", async (_e, ctx) => {
-    await start(ctx);
+    void ensureStarted(ctx);
     installAutocomplete(ctx);
   });
   pi.on("before_agent_start", async (event) => {
@@ -334,14 +344,15 @@ export default function piMeshExtension(pi: ExtensionAPI) {
   });
   pi.on("turn_start", async (_e, ctx) => {
     lastCtx = ctx;
-    if (!started) await start(ctx);
+    const fresh = !started;
+    await ensureStarted(ctx);
     // Catch a name that landed after session_start (e.g. --name applied late).
-    else await applyName(pi.getSessionName() ?? undefined);
+    if (!fresh) await applyName(pi.getSessionName() ?? undefined);
     await setPeerStatus("thinking");
   });
   pi.on("session_info_changed", async (event, ctx) => {
     lastCtx = ctx;
-    if (!started) await start(ctx);
+    await ensureStarted(ctx);
     await applyName((event as { name?: string })?.name);
   });
   pi.on("tool_execution_start", async (event, ctx) => {
@@ -364,7 +375,7 @@ export default function piMeshExtension(pi: ExtensionAPI) {
     activeTools.clear();
     await setPeerStatus("idle");
   });
-  pi.on("session_shutdown", async () => { await stop(); });
+  pi.on("session_shutdown", async () => { await starting; await stop(); });
 
   // ---- outbound: the model-facing tool ------------------------------------
   const PARAMS = Type.Object({

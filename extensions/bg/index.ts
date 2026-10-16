@@ -834,13 +834,15 @@ export default function (pi: ExtensionAPI) {
 	 * Strictly scoped: only files matching LOG_NAME_RE, only regular files, never
 	 * directories or symlinks, so a shared or user-populated BG_DIR is safe.
 	 */
-	function pruneLogs(): void {
+	// Async and after boot: the log dir holds thousands of files, and an lstat
+	// for each on the session_start path cost ~12ms of every launch.
+	async function pruneLogs(): Promise<void> {
 		try {
 			const cutoff = Date.now() - LOG_TTL_MS;
-			for (const entry of fs.readdirSync(BG_DIR, { withFileTypes: true })) {
+			for (const entry of await fs.promises.readdir(BG_DIR, { withFileTypes: true })) {
 				if (!entry.isFile() || !LOG_NAME_RE.test(entry.name)) continue;
 				const file = path.join(BG_DIR, entry.name);
-				if (fs.lstatSync(file).mtimeMs < cutoff) fs.rmSync(file, { force: true });
+				if ((await fs.promises.lstat(file)).mtimeMs < cutoff) await fs.promises.rm(file, { force: true });
 			}
 		} catch {
 			// directory may not exist yet
@@ -1220,7 +1222,7 @@ export default function (pi: ExtensionAPI) {
 
 	pi.on("session_start", async (_event, ctx) => {
 		ctxRef = ctx;
-		pruneLogs();
+		setTimeout(() => void pruneLogs(), 5_000).unref();
 		syncTicker();
 	});
 
