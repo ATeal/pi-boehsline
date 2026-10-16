@@ -50,7 +50,9 @@ const ago = (ms) => new Date(Math.floor((Date.now() - ms) / 1000) * 1000);
 const isoLocal = (d) => {
 	const p = (n) => String(Math.abs(n)).padStart(2, "0");
 	const off = -d.getTimezoneOffset();
-	return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())}T${p(d.getHours())}:${p(d.getMinutes())}:${p(d.getSeconds())}${off >= 0 ? "+" : "-"}${p(Math.trunc(off / 60))}:${p(off % 60)}`;
+	// ISO8601DateFormatter writes UTC as "Z", any other zone as ±hh:mm.
+	const zone = off === 0 ? "Z" : `${off > 0 ? "+" : "-"}${p(Math.trunc(off / 60))}:${p(off % 60)}`;
+	return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())}T${p(d.getHours())}:${p(d.getMinutes())}:${p(d.getSeconds())}${zone}`;
 };
 
 function plistXml(v) {
