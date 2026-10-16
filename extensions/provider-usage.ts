@@ -31,6 +31,7 @@ import { spawn } from "node:child_process";
 import { mkdir, readFile, rename, rm, stat, writeFile } from "node:fs/promises";
 import { homedir } from "node:os";
 import { join } from "node:path";
+import { readSecret, secretSourceLabel } from "../lib/secrets.ts";
 
 const REQUEST_TIMEOUT_MS = 10_000;
 const SLOW_BILLING_TIMEOUT_MS = 30_000;
@@ -305,20 +306,6 @@ async function fetchText(
   }
 }
 
-/** Same resolution pattern as aa-info's key: env first, then fnox (Keychain). */
-function fnoxGet(name: string): Promise<string | undefined> {
-  return new Promise((resolve) => {
-    let out = "";
-    try {
-      const child = spawn("fnox", ["get", name], { stdio: ["ignore", "pipe", "ignore"] });
-      child.stdout.on("data", (chunk) => (out += chunk));
-      child.on("error", () => resolve(undefined));
-      child.on("close", (code) => resolve(code === 0 && out.trim() ? out.trim() : undefined));
-    } catch {
-      resolve(undefined);
-    }
-  });
-}
 
 function toNumber(value: number | string | null | undefined): number {
   if (typeof value === "number") return Number.isFinite(value) ? value : 0;
@@ -1263,7 +1250,7 @@ async function fetchCerebras(ctx: ExtensionContext): Promise<UsageDisplay> {
  * candidates are tried freshest-first until one authenticates: an explicit
  * $OLLAMA_SESSION_COOKIE override, the live Safari cookie store (slides
  * forward on every ollama.com visit; needs Full Disk Access on the host
- * terminal and is silently skipped otherwise), then the fnox/Keychain
+ * terminal and is silently skipped otherwise), then the secret command (lib/secrets.ts)
  * snapshot.
  *
  * The page (as of 2026-09) renders an "Included usage" monthly dollar meter
@@ -1351,7 +1338,7 @@ function parseOllamaSettings(html: string, nowMs: number): OllamaUsage {
   return { plan, spent, limit, resetMs, extraBalance, models };
 }
 
-/** Env first, then fnox (Keychain). Silent: no cookie just means no chip. */
+/** Env first, then the secret command (lib/secrets.ts). Silent: no cookie just means no chip. */
 /** Safari keeps cookies in a sandboxed binarycookies file; readable only with
  *  Full Disk Access granted to the host terminal (pi inherits it). The layout
  *  has drifted across macOS versions, so instead of pinning page/record
@@ -1391,16 +1378,16 @@ async function safariOllamaSessionCookie(): Promise<string | undefined> {
 }
 
 /** Cookie candidates, freshest first: an explicit env override, the live
- *  Safari store, then the fnox/Keychain snapshot. */
+ *  Safari store, then the secret command. */
 async function ollamaSessionCookies(): Promise<Array<{ source: string; value: string }>> {
   const candidates: Array<{ source: string; value: string }> = [];
   const fromEnv = process.env[COOKIE_ENV_OLLAMA]?.trim();
   if (fromEnv) candidates.push({ source: `$${COOKIE_ENV_OLLAMA}`, value: fromEnv });
   const fromSafari = await safariOllamaSessionCookie();
   if (fromSafari) candidates.push({ source: "safari", value: fromSafari });
-  const fromFnox = await fnoxGet(COOKIE_ENV_OLLAMA);
-  if (fromFnox) candidates.push({ source: "fnox", value: fromFnox });
-  // Dedupe (Safari and fnox usually agree) so one stale round trip is skipped.
+  const fromSecret = await readSecret(COOKIE_ENV_OLLAMA);
+  if (fromSecret) candidates.push({ source: secretSourceLabel(), value: fromSecret });
+  // Dedupe (Safari and the secret store usually agree) so one stale round trip is skipped.
   return candidates.filter(
     (candidate, index) =>
       candidates.findIndex((other) => other.value === candidate.value) === index,
@@ -1411,7 +1398,7 @@ async function fetchOllama(_ctx: ExtensionContext): Promise<UsageDisplay> {
   const candidates = await ollamaSessionCookies();
   if (candidates.length === 0) {
     throw new Error(
-      `no Ollama session cookie (${COOKIE_ENV_OLLAMA} env, fnox, or readable Safari store)`,
+      `no Ollama session cookie (${COOKIE_ENV_OLLAMA} env, ${secretSourceLabel()}, or readable Safari store)`,
     );
   }
 
@@ -1506,7 +1493,7 @@ async function fetchOllamaWithCookie(
  *          month:    { limitMicroCents, usedMicroCents } } } }
  *
  * It needs a workspace id and a `__Host-console_session` cookie
- * (`$OPENCODE_SESSION_COOKIE`, then Safari, then fnox). Money fields are microcents
+ * (`$OPENCODE_SESSION_COOKIE`, then Safari, then the secret command). Money fields are microcents
  * (1e8 per dollar) and arrive as JSON strings. The month meter has no
  * rolling window of its own, so its reset is the paid period end.
  * Both paths render through the shared codex window formatter.
@@ -1606,7 +1593,7 @@ export function opencodeGoCookieHeader(value: string): string {
 
 /** Cookie candidates, freshest first: an explicit env override, the live
  *  Safari store (slides forward on every opencode.ai visit), then the
- *  fnox snapshot. */
+ *  secret command. */
 async function opencodeGoCookieCandidates(): Promise<Array<{ source: string; header: string }>> {
   const candidates: Array<{ source: string; header: string }> = [];
   const fromEnv = process.env[COOKIE_ENV_OPENCODE_GO]?.trim();
@@ -1614,8 +1601,8 @@ async function opencodeGoCookieCandidates(): Promise<Array<{ source: string; hea
     candidates.push({ source: `$${COOKIE_ENV_OPENCODE_GO}`, header: opencodeGoCookieHeader(fromEnv) });
   }
   candidates.push(...(await safariOpencodeGoHeaders()));
-  const fromFnox = await fnoxGet(COOKIE_ENV_OPENCODE_GO);
-  if (fromFnox) candidates.push({ source: "fnox", header: opencodeGoCookieHeader(fromFnox) });
+  const fromSecret = await readSecret(COOKIE_ENV_OPENCODE_GO);
+  if (fromSecret) candidates.push({ source: secretSourceLabel(), header: opencodeGoCookieHeader(fromSecret) });
   // Dedupe so one stale round trip is skipped when the stores agree.
   return candidates.filter(
     (candidate, index) =>
@@ -1803,7 +1790,7 @@ async function fetchOpencodeGoFromCookies(): Promise<UsageDisplay> {
   const candidates = await opencodeGoCookieCandidates();
   if (candidates.length === 0) {
     throw new Error(
-      `no OpenCode session cookie ($${COOKIE_ENV_OPENCODE_GO} env, fnox, or readable Safari store — log in to opencode.ai in Safari)`,
+      `no OpenCode session cookie ($${COOKIE_ENV_OPENCODE_GO} env, ${secretSourceLabel()}, or readable Safari store — log in to opencode.ai in Safari)`,
     );
   }
 

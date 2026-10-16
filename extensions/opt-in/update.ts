@@ -4,9 +4,15 @@
 // `pi update` refuses ("not managed by a global npm install") and only adds
 // "Extensions are skipped. Run pi update --extensions". The real work is a
 // mise concern: move the pin to the current npm release, install that exact
-// version, then reconverge packages the way `mise run bootstrap:pi` already
-// does. That script lives in the dotfiles repo as the `update:pi` task; this
-// command finds the checkout and runs it.
+// version, then reconverge packages. That work is a mise task you own (the
+// `update:pi` task by default) in the project that holds the pin; this command
+// finds that project and runs the task.
+//
+// Settings (Boehsline config, ~/.pi/agent/boehsline.json):
+//   "update": { "dir": "~/path/to/the/project/with/the/pin", "task": "update:pi" }
+// With no "dir", the project is the git checkout that ~/.config/mise/config.toml
+// lives in (or symlinks into). The task must print the JSON result line that
+// parseResult() reads; PI_UPDATE_CHECK=1 asks it to change nothing.
 //
 // /update check reports the available version and changes nothing, as the same
 // banner pi shows at startup. That banner only says `pi update`, which cannot
@@ -20,9 +26,19 @@ import { dirname, join } from "node:path";
 
 import { DynamicBorder, VERSION, type ExtensionAPI, type Theme } from "@earendil-works/pi-coding-agent";
 import { Container, Text, getCapabilities, hyperlink, type AutocompleteItem } from "@earendil-works/pi-tui";
+import { settingsFor } from "../../lib/config.ts";
 import { optIn } from "../../lib/opt-in.ts";
 
-const TASK = "update:pi";
+const UPDATE_DEFAULTS = { dir: "", task: "update:pi" };
+function updateSettings(): { dir: string; task: string } {
+  const s = settingsFor("update", UPDATE_DEFAULTS);
+  const dir = typeof s.dir === "string" ? s.dir : "";
+  return {
+    dir: dir === "~" || dir.startsWith("~/") ? join(homedir(), dir.slice(1)) : dir,
+    task: typeof s.task === "string" && s.task ? s.task : UPDATE_DEFAULTS.task,
+  };
+}
+
 const BANNER_TYPE = "pi-update-available";
 const CHANGELOG_URL = "https://pi.dev/changelog";
 
@@ -68,10 +84,12 @@ interface UpdateResult {
   check: boolean;
 }
 
-// ~/.config/mise/config.toml is a symlink into the dotfiles checkout, and the
-// checkout is the only place the pin and the update:pi task both exist. mise
-// run from the project that happens to be open would not find the task.
-async function dotfilesRoot(): Promise<string | null> {
+// The project that holds the pin and the task: update.dir, else the checkout
+// that ~/.config/mise/config.toml lives in. mise run from the project that
+// happens to be open would not find the task.
+export async function projectRoot(): Promise<string | null> {
+  const { dir } = updateSettings();
+  if (dir) return (await gitTop(dir)) ?? dir;
   const config = join(homedir(), ".config", "mise", "config.toml");
   let resolved: string;
   try {
@@ -80,16 +98,7 @@ async function dotfilesRoot(): Promise<string | null> {
     resolved = "";
   }
 
-  const candidates = [
-    resolved ? dirname(resolved) : "",
-    join(homedir(), "Code", "github.com", "ericboehs", "dotfiles"),
-  ].filter((dir) => dir !== "");
-
-  for (const dir of candidates) {
-    const root = await gitTop(dir);
-    if (root) return root;
-  }
-  return null;
+  return resolved ? gitTop(dirname(resolved)) : null;
 }
 
 function gitTop(dir: string): Promise<string | null> {
@@ -115,7 +124,8 @@ function runTask(
   if (check) env.PI_UPDATE_CHECK = "1";
 
   return new Promise((resolve) => {
-    const child = spawn("mise", ["run", TASK], {
+    const task = updateSettings().task;
+    const child = spawn("mise", ["run", task], {
       cwd,
       env,
       stdio: ["ignore", "pipe", "pipe"],
@@ -146,8 +156,8 @@ function runTask(
     child.on("error", (err) => {
       const missing = err.message.includes("ENOENT");
       output += missing
-        ? "update:pi: mise is not on PATH\n"
-        : `update:pi: failed to start mise: ${err.message}\n`;
+        ? `${task}: mise is not on PATH\n`
+        : `${task}: failed to start mise: ${err.message}\n`;
       finish(missing ? 127 : 1);
     });
     child.on("close", (code) => finish(code ?? 1));
@@ -279,7 +289,7 @@ function main(pi: ExtensionAPI) {
           return;
         }
         await writeStamp({ at: Date.now(), from: VERSION });
-        const root = await dotfilesRoot();
+        const root = await projectRoot();
         if (!root) return;
         const { code, output } = await runTask(root, true, () => {});
         const result = code === 0 ? parseResult(output) : null;
@@ -310,9 +320,9 @@ function main(pi: ExtensionAPI) {
       }
 
       const check = args.trim() === "check";
-      const root = await dotfilesRoot();
+      const root = await projectRoot();
       if (!root) {
-        if (ctx.hasUI) ctx.ui.notify("Can't find the dotfiles checkout that pins pi", "error");
+        if (ctx.hasUI) ctx.ui.notify(`Can't find the mise project that pins pi. Set "update": { "dir": "…" } in ~/.pi/agent/boehsline.json`, "error");
         return;
       }
 

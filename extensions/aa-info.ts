@@ -73,17 +73,17 @@
  * weekly TTL; a persistent unknown just re-fetches at that same pace, a
  * couple of calls a day.
  *
- * The key resolves from $ARTIFICIAL_ANALYSIS_API_KEY, then `fnox get` (macOS
- * Keychain), the same chain web-providers/config.ts uses. It is held only in
+ * The key resolves from $ARTIFICIAL_ANALYSIS_API_KEY, then the secret command
+ * (lib/secrets.ts; `fnox get` by default), the same chain web-providers/config.ts uses. It is held only in
  * memory and never logged or persisted. Data by artificialanalysis.ai — the
  * trailing (AA) is the attribution their free API terms ask for; a version
  * suffix (AA v4.3) names the cached cost-endpoint index on top of that.
  */
 
-import { spawn } from "node:child_process";
 import { mkdir, readFile, rename, writeFile } from "node:fs/promises";
 import { homedir } from "node:os";
 import { dirname, join } from "node:path";
+import { readSecret, secretSourceLabel } from "../lib/secrets.ts";
 
 import type { ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-agent";
 
@@ -514,27 +514,14 @@ function briefing(
 let resolvedKey: string | undefined;
 let keyResolved = false;
 
-/** Env first, then fnox (Keychain). Silent: no key just means no briefings. */
+/** Env first, then the secret command (lib/secrets.ts). Silent: no key just means no briefings. */
 async function apiKey(): Promise<string | undefined> {
   if (keyResolved) return resolvedKey;
   keyResolved = true;
-  resolvedKey = process.env[KEY_ENV]?.trim() || (await fnoxGet(KEY_ENV));
+  resolvedKey = process.env[KEY_ENV]?.trim() || (await readSecret(KEY_ENV));
   return resolvedKey;
 }
 
-function fnoxGet(name: string): Promise<string | undefined> {
-  return new Promise((resolve) => {
-    let out = "";
-    try {
-      const p = spawn("fnox", ["get", name], { stdio: ["ignore", "pipe", "ignore"] });
-      p.stdout.on("data", (d) => (out += d));
-      p.on("error", () => resolve(undefined));
-      p.on("close", (code) => resolve(code === 0 && out.trim() ? out.trim() : undefined));
-    } catch {
-      resolve(undefined);
-    }
-  });
-}
 
 async function readCache(): Promise<AaCache | undefined> {
   try {

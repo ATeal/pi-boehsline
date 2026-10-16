@@ -5,10 +5,10 @@
  * unknown names all degrade to defaults rather than erroring: a bad edit
  * must never take web access down mid-session.
  */
-import { spawn } from "node:child_process";
 import { chmod, mkdir, readFile, rename, writeFile } from "node:fs/promises";
 import { homedir } from "node:os";
 import { join } from "node:path";
+import { readSecret, secretSourceLabel } from "../../lib/secrets.ts";
 
 export const SEARCH_BACKENDS = ["brave", "tavily", "exa", "firecrawl", "codex", "perplexity"] as const;
 export const FETCH_TIERS = ["plain", "curl", "obscura", "chrome", "safari", "firecrawl", "tinyfish"] as const;
@@ -196,22 +196,10 @@ export const KEY_ENV: Record<string, string[]> = {
 
 const keyCache = new Map<string, ResolvedKey | undefined>();
 
-function fnoxGet(name: string): Promise<string | undefined> {
-  return new Promise((resolve) => {
-    let out = "";
-    try {
-      const p = spawn("fnox", ["get", name], { stdio: ["ignore", "pipe", "ignore"] });
-      p.stdout.on("data", (d) => (out += d));
-      p.on("error", () => resolve(undefined));
-      p.on("close", (code) => resolve(code === 0 && out.trim() ? out.trim() : undefined));
-    } catch {
-      resolve(undefined);
-    }
-  });
-}
 
 /**
- * Resolve a provider key from the environment, then fnox (Keychain). Values are
+ * Resolve a provider key from the environment, then the secret command
+ * (lib/secrets.ts; `fnox get` by default). Values are
  * cached for the process and never logged, persisted, or shown by /web.
  */
 /**
@@ -231,7 +219,7 @@ export async function resolveKeyInfo(backend: string): Promise<ResolvedKey | und
 
   let found: ResolvedKey | undefined;
   for (const env of names) {
-    const value = process.env[env]?.trim() || (await fnoxGet(env));
+    const value = process.env[env]?.trim() || (await readSecret(env));
     if (value) {
       found = { key: value, env };
       break;

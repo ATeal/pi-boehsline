@@ -25,6 +25,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { browserHeaders, userAgentString } from "./ua.ts";
 import { navigateAndGet, sameOriginFetch, shutdownBrowser } from "./browser.ts";
+import { secretSourceLabel } from "../../lib/secrets.ts";
 
 export { shutdownBrowser };
 
@@ -280,7 +281,7 @@ export class TierHttpError extends Error {
  * empty. Returns markdown, which finish() passes through untouched.
  */
 async function tier5(url: string, key?: string, signal?: AbortSignal): Promise<RawResult> {
-	if (!key) throw new Error("no FIRECRAWL_API_KEY (env or fnox)");
+	if (!key) throw new Error(`no FIRECRAWL_API_KEY (env or ${secretSourceLabel()})`);
 	const signals = [AbortSignal.timeout(60_000), ...(signal ? [signal] : [])];
 	const res = await fetch("https://api.firecrawl.dev/v2/scrape", {
 		method: "POST",
@@ -315,7 +316,7 @@ async function tier5(url: string, key?: string, signal?: AbortSignal): Promise<R
  * (no cool-off) from a spent or rejected key (cool-off).
  */
 async function tier6(url: string, key?: string, signal?: AbortSignal): Promise<RawResult> {
-	if (!key) throw new Error("no TINY_FISH_API_KEY (env or fnox)");
+	if (!key) throw new Error(`no TINY_FISH_API_KEY (env or ${secretSourceLabel()})`);
 	const signals = [AbortSignal.timeout(60_000), ...(signal ? [signal] : [])];
 	const res = await fetch("https://api.fetch.tinyfish.ai", {
 		method: "POST",

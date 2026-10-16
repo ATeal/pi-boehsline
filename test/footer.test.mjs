@@ -1290,7 +1290,7 @@ test("that refusal names the pinned guardian package and its settings file", asy
     await ui.run("bypass");
     const { message } = ui.notices.at(-1);
     assert.match(message, /^npm:pi-approval-guardian@0\.8\.0 does not support/);
-    assert.match(message, /Pin git:github\.com\/ericboehs\/pi-approval-guardian in /);
+    assert.match(message, /Boehsline's bundled guardian does: remove "npm:pi-approval-guardian@0\.8\.0" from /);
     assert.ok(message.includes(path.join(dir, "settings.json")), message);
     assert.match(message, /\/approval-guardian bypass/, "offers the slow path meanwhile");
   });
@@ -1300,7 +1300,7 @@ test("that refusal stays generic when settings name no guardian", async () => {
   await withAgentDir(async () => {
     const ui = await mount({ guardianEventSupport: false });
     await ui.run("bypass");
-    assert.match(ui.notices.at(-1).message, /^The installed Approval Guardian does not support/);
+    assert.match(ui.notices.at(-1).message, /^The loaded Approval Guardian does not support.*remove the other approval-guardian package/);
   });
 });
 

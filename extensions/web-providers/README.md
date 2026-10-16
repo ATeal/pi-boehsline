@@ -471,7 +471,7 @@ query, not this one.
 
 ## Keys
 
-Resolved from the environment first, then `fnox get <NAME>` (macOS Keychain),
+Resolved from the environment first, then Boehsline's secret command (`secrets.command`, default `fnox get <NAME>`),
 cached per process. Never logged, never written to `web.json`, never shown by
 `/web` — status prints presence only.
 

@@ -496,8 +496,6 @@ const GUARDIAN_COMMAND = "approval-guardian";
 const GUARDIAN_WIDGET_KEY = "approval-guardian-bypass";
 const GUARDIAN_BYPASS_CONTROL_EVENT = "approval-guardian:set-temporary-bypass";
 const GUARDIAN_BYPASS_STATE_EVENT = "approval-guardian:temporary-bypass-state";
-/** The pin that carries the control event; upstream npm builds do not have it. */
-const GUARDIAN_FORK_PACKAGE = "git:github.com/ericboehs/pi-approval-guardian";
 
 const BLUE = 34;
 const MAGENTA = 35;
@@ -2221,10 +2219,13 @@ export default function footerExtension(pi: ExtensionAPI): void {
     pi.events.emit(GUARDIAN_BYPASS_CONTROL_EVENT, request);
     if (!request.handled) {
       const { pin, settings } = await guardianPin();
+      // Boehsline bundles a guardian that answers the control event
+      // (packages/approval-guardian); upstream builds don't. Not handled means
+      // another guardian package is loaded instead of, or ahead of, that one.
       ctx.ui.notify(
-        `${pin || "The installed Approval Guardian"} does not support immediate bypass control.` +
-          ` Pin ${GUARDIAN_FORK_PACKAGE} in ${tildePath(settings)} and /reload,` +
-          " or use /approval-guardian bypass.",
+        `${pin || "The loaded Approval Guardian"} does not support immediate bypass control.` +
+          ` Boehsline's bundled guardian does: remove ${pin ? `"${pin}"` : "the other approval-guardian package"}` +
+          ` from ${tildePath(settings)} and /reload, or use /approval-guardian bypass.`,
         "error",
       );
       return;

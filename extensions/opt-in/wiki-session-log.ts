@@ -1,42 +1,47 @@
 import { spawn } from "node:child_process";
-import { existsSync } from "node:fs";
 import { homedir } from "node:os";
 import { join } from "node:path";
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
+import { settingsFor } from "../../lib/config.ts";
 import { optIn } from "../../lib/opt-in.ts";
 
-// Mirror Claude Code's Stop hook (~/.claude/hooks/log-session.sh): keep
-// ~/Documents/Wiki/AI Sessions/ current so /checkin and /update-sessions see pi
-// work alongside Claude work.
+// After each settled turn (and at shutdown), run a command with this session's
+// JSONL path, so an outside tool can mirror pi sessions into a wiki or notes
+// folder. Like Claude Code's Stop hook: the extension knows nothing about the
+// output format; the command reads the JSONL and writes what it wants.
 //
-// This extension deliberately knows nothing about the wiki format. All it does
-// is poke `pi-session-sync` (bin/pi-session-sync in this repo), which reads
-// this session's JSONL and regenerates
-// the markdown from scratch. /checkin runs the same command with --all as a
-// backstop, so there is one implementation behind two triggers -- no second
-// renderer here to drift out of sync with the first.
+// Settings (Boehsline config, ~/.pi/agent/boehsline.json):
+//   "wiki-session-log": { "command": ["~/bin/pi-session-sync"] }
+// The session file is appended as the last argument. A leading ~ in the first
+// argument expands. No command: the extension does nothing.
+//
+// Prefer an absolute path over a bare name: pi may be launched from a GUI or a
+// login shell whose PATH lacks your bin folder, and a silently-unfound command
+// would look exactly like "logging works" until you went looking.
 
-// Prefer an explicit path over a bare PATH lookup: pi may be launched from a
-// GUI or a login shell whose PATH lacks ~/bin, and a silently-unfound converter
-// would look exactly like "logging works" until checkin came up empty.
-// ~/bin is this repo's own bin/ (symlinked by mise), so it is the real home.
-//
-// A ~/.local/bin fallback used to sit second in this list, from when the
-// converter lived there before being tracked. It is gone on purpose: that
-// directory sorts *ahead* of ~/bin on PATH, so a leftover copy would shadow
-// the tracked script and quietly keep rendering from a stale version.
-const TRACKED_SYNC_BIN = join(homedir(), "bin", "pi-session-sync");
-const SYNC_BIN = existsSync(TRACKED_SYNC_BIN)
-  ? TRACKED_SYNC_BIN
-  : "pi-session-sync";
+const DEFAULTS = { command: [] as string[] };
+
+export function syncCommand(): string[] {
+  const raw = settingsFor("wiki-session-log", DEFAULTS).command as unknown;
+  const argv = Array.isArray(raw)
+    ? raw.filter((a): a is string => typeof a === "string" && a !== "")
+    : typeof raw === "string"
+      ? raw.split(/\s+/).filter(Boolean)
+      : [];
+  const [cmd, ...rest] = argv;
+  if (!cmd) return [];
+  return [cmd === "~" || cmd.startsWith("~/") ? join(homedir(), cmd.slice(1)) : cmd, ...rest];
+}
 
 function main(pi: ExtensionAPI) {
   let sessionFile: string | undefined;
   let running = false;
   let queued = false;
 
+  let command: string[] = [];
+
   const sync = () => {
-    if (!sessionFile) return;
+    if (!sessionFile || !command.length) return;
     // The converter rewrites the whole file, so overlapping runs would just
     // race to produce identical bytes. Collapse them into one trailing run.
     if (running) {
@@ -45,7 +50,8 @@ function main(pi: ExtensionAPI) {
     }
     running = true;
 
-    const child = spawn(SYNC_BIN, [sessionFile], {
+    const [cmd, ...args] = command as [string, ...string[]];
+    const child = spawn(cmd, [...args, sessionFile], {
       detached: true,
       stdio: "ignore",
     });
@@ -67,6 +73,7 @@ function main(pi: ExtensionAPI) {
 
   pi.on("session_start", (_event, ctx) => {
     sessionFile = ctx.sessionManager.getSessionFile?.();
+    command = syncCommand(); // after every package has registered its config
   });
 
   // agent_settled is pi's analogue of Claude Code's Stop hook: the turn is done
@@ -83,4 +90,4 @@ function main(pi: ExtensionAPI) {
   });
 }
 
-export default optIn("wiki-session-log", "Mirror sessions into the Wiki via pi-session-sync", main);
+export default optIn("wiki-session-log", "Run a command with the session file after each turn (e.g. sync to a wiki)", main);
