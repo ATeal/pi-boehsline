@@ -74,9 +74,11 @@ See [NOTICE](NOTICE) for credits and licenses.
 ## Development
 
 ```bash
-npm test             # node --test (Node >= 22.18)
-npm run typecheck    # needs: npm install --no-save typescript@5 @types/node @earendil-works/pi-coding-agent @earendil-works/pi-tui typebox
-pi -e .              # try the working tree in a session
+npm install
+npm run typecheck              # links the pi you run (mise/npm -g); CI pins PI_VERSION
+npm test                       # node --test (Node >= 22.18)
+pi -ne -e .                    # try the working tree without your installed extensions
+scripts/sync-dotfiles.sh       # pull new dotfiles commits for moved extensions (until the switch)
 ```
 
 ## License

@@ -18,7 +18,7 @@
   },
   "scripts": {
     "test": "node --test test/*.test.mjs",
-    "typecheck": "tsc -p ."
+    "typecheck": "scripts/typecheck.sh"
   },
   "peerDependencies": {
     "@earendil-works/pi-coding-agent": "*",
@@ -60,5 +60,16 @@
     "themes": [
       "themes/*.json"
     ]
+  },
+  "dependencies": {
+    "@mozilla/readability": "^0.6.0",
+    "jsdom": "^26.0.0",
+    "playwright-core": "^1.55.0",
+    "turndown": "^7.2.0"
+  },
+  "//dependencies": "Runtime deps for extensions/web-fetch-resilient (web_fetch). pi installs root dependencies only, so nested package.json files don't count.",
+  "devDependencies": {
+    "@types/jsdom": "^21.1.7",
+    "@types/turndown": "^5.0.6"
   }
 }
