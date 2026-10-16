@@ -5,14 +5,58 @@
  *   /boehsline enable <name>   turn an opt-in extension on (writes boehsline.json, reloads)
  *   /boehsline disable <name>  turn it off
  *   /boehsline config          the merged config, and where each layer comes from
+ *   /boehsline defaults [--force]   show Boehsline's keybindings as a diff against
+ *                              yours, then merge them after you confirm (only keys
+ *                              you haven't set; --force replaces yours too)
  *
  * Core extensions are turned off with pi's own tools (`pi config`, or a filter
  * on the package entry in settings.json), not here.
  */
 
-import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
+import { mkdirSync, realpathSync, renameSync, writeFileSync } from "node:fs";
+import { dirname, join } from "node:path";
+import { fileURLToPath } from "node:url";
+import { type ExtensionAPI, type ExtensionCommandContext, getAgentDir } from "@earendil-works/pi-coding-agent";
 import type { AutocompleteItem } from "@earendil-works/pi-tui";
 import { loadConfig, optIns, readUserConfig, setEnabled, sources, userConfigPath } from "../lib/config.ts";
+import { changes, diffText, planDefaults, readFlat, unresolvedConflicts } from "../lib/defaults.ts";
+
+const DEFAULT_KEYBINDINGS = new URL("../defaults/keybindings.json", import.meta.url);
+const keybindingsPath = () => join(getAgentDir(), "keybindings.json");
+
+/** Write through a symlink (dotfiles often link keybindings.json), atomically. */
+function writeJson(path: string, value: unknown): void {
+	let target = path;
+	try {
+		target = realpathSync(path);
+	} catch {
+		// new file
+	}
+	mkdirSync(dirname(target), { recursive: true });
+	const tmp = `${target}.tmp-${process.pid}`;
+	writeFileSync(tmp, `${JSON.stringify(value, null, 2)}\n`);
+	renameSync(tmp, target);
+}
+
+async function applyDefaults(ctx: ExtensionCommandContext, force: boolean): Promise<void> {
+	const path = keybindingsPath();
+	let user: ReturnType<typeof readFlat>;
+	try {
+		user = readFlat(path);
+	} catch (err) {
+		return ctx.ui.notify(`Not touching a broken file: ${(err as Error).message}`, "error");
+	}
+	const plan = planDefaults(user, readFlat(fileURLToPath(DEFAULT_KEYBINDINGS)), force);
+	const diff = diffText(plan, force);
+	if (!changes(plan, force)) {
+		return ctx.ui.notify(`Keybindings already match Boehsline's defaults.${diff ? `\n${diff}` : ""}`, "info");
+	}
+	const ok = await ctx.ui.confirm(`Merge Boehsline's keybindings into ${path}?`, diff);
+	if (!ok) return ctx.ui.notify("Left your keybindings alone.", "info");
+	writeJson(path, plan.merged);
+	ctx.ui.notify(`Updated ${path}. Reloading…`, "info");
+	await ctx.reload();
+}
 
 function statusText(): string {
 	const lines: string[] = [];
@@ -29,7 +73,7 @@ function statusText(): string {
 	lines.push(`Sources: ${src.length ? src.join(", ") : "none"}`);
 	const { error } = readUserConfig();
 	if (error) lines.push(`⚠ ${error}`);
-	lines.push("", "/boehsline enable <name> · disable <name> · config");
+	lines.push("", "/boehsline enable <name> · disable <name> · config · defaults");
 	return lines.join("\n");
 }
 
@@ -42,6 +86,21 @@ function configText(): string {
 }
 
 export default function boehsline(pi: ExtensionAPI): void {
+	// Once per session, while stash or prompt-history still fight pi for a key.
+	pi.on("session_start", (_e, ctx) => {
+		if (!ctx.hasUI) return;
+		let user: ReturnType<typeof readFlat>;
+		try {
+			user = readFlat(keybindingsPath());
+		} catch {
+			return;
+		}
+		const open = unresolvedConflicts(user);
+		if (!open.length) return;
+		const keys = open.map((c) => `${c.key} (${c.by})`).join(" and ");
+		ctx.ui.notify(`Boehsline uses ${keys}, which pi also binds. /boehsline defaults moves pi's to Alt.`, "info");
+	});
+
 	pi.registerCommand("boehsline", {
 		description: "Boehsline: list opt-in extensions, enable/disable them, show config",
 		getArgumentCompletions: (prefix: string): AutocompleteItem[] => {
@@ -51,7 +110,7 @@ export default function boehsline(pi: ExtensionAPI): void {
 					.filter((x) => (sub === "enable" ? !x.on : x.on) && x.name.startsWith(name))
 					.map((x) => ({ value: `${sub} ${x.name}`, label: x.name, description: x.description }));
 			}
-			return ["enable", "disable", "config"]
+			return ["enable", "disable", "config", "defaults"]
 				.filter((s) => s.startsWith(sub))
 				.map((s) => ({ value: `${s} `, label: s }));
 		},
@@ -59,6 +118,7 @@ export default function boehsline(pi: ExtensionAPI): void {
 			const [sub, name] = (args ?? "").trim().split(/\s+/);
 			if (!sub) return ctx.ui.notify(statusText(), "info");
 			if (sub === "config") return ctx.ui.notify(configText(), "info");
+			if (sub === "defaults") return applyDefaults(ctx, name === "--force");
 			if (sub === "enable" || sub === "disable") {
 				if (!name) return ctx.ui.notify(`Usage: /boehsline ${sub} <name>`, "warning");
 				const on = sub === "enable";

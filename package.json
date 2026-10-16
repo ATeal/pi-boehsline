@@ -48,7 +48,6 @@
       "packages/context/index.ts",
       "packages/scheduler/extensions/*.ts",
       "packages/agent-link/index.ts",
-      "packages/approval-guardian/extensions/index.ts",
       "packages/goal/extensions/goal.ts"
     ],
     "skills": [

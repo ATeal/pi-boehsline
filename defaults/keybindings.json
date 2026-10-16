@@ -1,0 +1,10 @@
+{
+  "//": "Boehsline's keybindings, merged into pi's keybindings.json by /boehsline defaults (only keys you haven't set; --force replaces yours). The Alt+S and Alt+R lines move pi's own shortcuts off Ctrl+S (stash) and Ctrl+R (prompt history).",
+  "app.models.save": "alt+s",
+  "app.thinking.save": "alt+s",
+  "app.session.toggleSort": "alt+s",
+  "app.session.rename": "alt+r",
+  "app.message.followUp": "ctrl+enter",
+  "tui.input.newLine": ["shift+enter", "ctrl+j", "alt+enter"],
+  "tui.editor.undo": ["ctrl+-", "super+z"]
+}

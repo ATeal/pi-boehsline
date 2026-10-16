@@ -64,13 +64,13 @@ When the assistant ends with a numbered "Next steps:" block, `/1`, `/2` or `/3` 
 Shows which upstream provider OpenRouter actually routed each turn to, in the footer.
 
 #### prompt-history
-Shell-style prompt history shared by every pi session on the machine.
+Shell-style prompt history shared by every pi session on the machine, searched with Ctrl+R. pi also binds Ctrl+R; run `/boehsline defaults` to move pi's to Alt+R.
 
 #### provider-usage
 Usage and quota chips in the footer for codex, copilot, grok, cerebras, opencode-go, baseten, openrouter and ollama. **Tool:** `provider_usage`. Credentials come from the environment or the secret command; ollama and opencode-go can also read Safari's session cookies.
 
 #### stash
-Stash a half-typed message with Ctrl+S, as in Claude Code, and get it back later. **Command:** `/stash`.
+Stash a half-typed message with Ctrl+S, as in Claude Code, and get it back later. **Command:** `/stash`. pi also binds Ctrl+S; run `/boehsline defaults` to move pi's to Alt+S.
 
 #### subagent
 A minimal subagent tool that runs a separate pi process for a focused task. **Tool:** `subagent`.
@@ -87,13 +87,13 @@ Scheduled prompts. **Commands:** `/loop` and `/once` (for this session); `/sched
 #### agent-link
 Lets pi and Claude Code sessions on the same machine talk to each other. Address a live session with `@name`; you can list sessions, send messages, ask and wait, and reply. **Command:** `/agent-link`. *(Bundled from pi-agent-link, a fork of [alonw0/pi-claude-link](https://github.com/alonw0/pi-claude-link).)*
 
-#### approval-guardian
-A fail-closed approval gate for tool calls, with a guardian model that reviews risky calls. **Command:** `/approval-guardian`. *(Bundled from pi-approval-guardian, a fork of [mics8128/pi-approval-guardian](https://github.com/mics8128/pi-approval-guardian).)*
-
 #### boehsline
-Shows and changes what Boehsline loads. **Command:** `/boehsline [enable|disable <name> | config]`.
+Shows and changes what Boehsline loads, and applies its default keybindings. **Command:** `/boehsline [enable|disable <name> | config | defaults [--force]]`.
 
 ### Opt-in
+
+#### approval-guardian
+A fail-closed approval gate for tool calls, with a guardian model that reviews risky calls. Opt-in because, once on, risky calls wait for review: set it up with `/approval-guardian` after enabling. **Command:** `/approval-guardian`. *(Bundled from pi-approval-guardian, a fork of [mics8128/pi-approval-guardian](https://github.com/mics8128/pi-approval-guardian).)*
 
 #### watch
 An in-session watcher for Slack, a team bot feed, and Mac and iPhone notifications. A small model sorts each new message into needs-you, context or drop. The top items show in a widget, and a digest arrives every 15 minutes. Work text goes only to the models you allow. It can offer drafts and, with tight limits, start a turn itself (meeting prep, drafts while you're away, urgent pings). **Commands:** `/watch` (start, stop, list, waits, digest, recap, mute and more). **Tool:** `watch_items`. **Settings:** `watch`, `work` (see below). **Needs:** [`slk`](https://github.com/ericboehs/slk) for Slack; `ical` for meeting prep; `qmd` for notes lookups. Notifications need macOS, `swiftc` and Full Disk Access for your terminal: `/watch start` builds `bin/notif-watch` from [`native/notif-watch`](native/notif-watch/notif-watch.swift) the first time (about 10 seconds).
@@ -122,7 +122,7 @@ Everything below goes in `~/.pi/agent/boehsline.json`, or comes from a package t
 
 ```jsonc
 {
-  "enable": ["watch", "meeting", "tmux-attention"],
+  "enable": ["approval-guardian", "watch", "meeting", "tmux-attention"],
 
   // Secret lookups after the environment. {name} is replaced, else appended. [] = env only.
   "secrets": { "command": ["fnox", "get"], "timeoutMs": 10000 },
@@ -155,6 +155,10 @@ Everything below goes in `~/.pi/agent/boehsline.json`, or comes from a package t
   "wiki-session-log": { "command": ["~/bin/pi-session-sync"] }
 }
 ```
+
+## Default keybindings
+
+`stash` and `prompt-history` use Ctrl+S and Ctrl+R, which pi also binds, so pi warns at startup until you pick. `/boehsline defaults` shows [`defaults/keybindings.json`](defaults/keybindings.json) as a diff against your `keybindings.json` and merges it after you confirm. It only adds keys you haven't set; `--force` also replaces yours. It moves pi's shortcuts to Alt+S and Alt+R and adds a few more opinionated bindings.
 
 ## Opt-in extensions and config
 
