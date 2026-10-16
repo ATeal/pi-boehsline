@@ -1,0 +1,26 @@
+name: typecheck
+
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  typecheck:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+
+      # pi is an *optional* peer dependency: it supplies the ExtensionAPI and
+      # pi-tui types index.ts imports, and nothing here bundles or requires it at
+      # runtime. Optional keeps `pi install` from cloning 200MB of pi into
+      # ~/.pi/agent/git behind the extension, so CI installs it explicitly here.
+      - name: Install typecheck deps
+        run: npm install --no-save typescript@5 @earendil-works/pi-coding-agent @earendil-works/pi-tui
+
+      - name: Typecheck
+        run: npx tsc -p tsconfig.json

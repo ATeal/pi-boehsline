@@ -1,0 +1,41 @@
+{
+  "name": "pi-context",
+  "version": "0.2.0",
+  "description": "A /context command for pi that shows what's consuming your context window — tool schemas grouped by extension, system prompt, context files, skills, and conversation.",
+  "keywords": [
+    "pi",
+    "pi-coding-agent",
+    "pi-extension",
+    "context",
+    "tokens",
+    "context-window"
+  ],
+  "license": "MIT",
+  "author": "Eric Boehs",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/ericboehs/pi-context.git"
+  },
+  "type": "module",
+  "pi": {
+    "extensions": [
+      "./index.ts"
+    ]
+  },
+  "scripts": {
+    "//": "Nothing is declared as a dependency: pi's git installer runs a plain `npm install` in the clone, and npm installs a root package's devDependencies and non-optional peers — which dropped a 200MB copy of pi into ~/.pi/agent/git for a package that ships one .ts file and bundles nothing. The types are fetched on demand instead, by CI and by anyone typechecking locally: npm install --no-save typescript@5 @earendil-works/pi-coding-agent @earendil-works/pi-tui. That install cannot live in the script below, because npm run's nested install reifies the tree against this manifest and prunes what it just added.",
+    "typecheck": "tsc -p tsconfig.json"
+  },
+  "peerDependencies": {
+    "@earendil-works/pi-coding-agent": "*",
+    "@earendil-works/pi-tui": "*"
+  },
+  "peerDependenciesMeta": {
+    "@earendil-works/pi-coding-agent": {
+      "optional": true
+    },
+    "@earendil-works/pi-tui": {
+      "optional": true
+    }
+  }
+}
