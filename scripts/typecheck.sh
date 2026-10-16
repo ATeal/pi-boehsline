@@ -8,6 +8,8 @@
 # Those packages are optional peers, and npm 11 won't install optional peers
 # into a project that has real dependencies, so they can't go in node_modules
 # directly.
+#
+# --link-only: make the links and stop (tests need them at runtime too).
 set -euo pipefail
 cd "$(dirname "$0")/.."
 [ -d node_modules ] || npm install --no-audit --no-fund
@@ -50,5 +52,9 @@ ln -sfn "$pi_deps/@earendil-works/pi-ai" node_modules/@earendil-works/pi-ai
 ln -sfn "$pi_deps/typebox" node_modules/typebox
 [ -d "$pi_deps/@types/node" ] && ln -sfn "$pi_deps/@types/node" node_modules/@types/node
 
+if [ "${1:-}" = "--link-only" ]; then
+  echo "Linked pi $(node -p "require('$pi_pkg/package.json').version") ($pi_pkg)"
+  exit 0
+fi
 echo "Typechecking against $(node -p "require('$pi_pkg/package.json').version") ($pi_pkg)"
 exec npx --yes --package=typescript@5 tsc -p tsconfig.json
