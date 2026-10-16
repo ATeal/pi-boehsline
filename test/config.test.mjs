@@ -98,3 +98,15 @@ test("userConfigPath: BOEHSLINE_CONFIG, else pi's agent dir (PI_CODING_AGENT_DIR
 	assert.equal(userConfigPath({ PI_CODING_AGENT_DIR: "/a" }), "/a/boehsline.json");
 	assert.match(userConfigPath({}), /\.pi\/agent\/boehsline\.json$/);
 });
+
+test("setEnabled writes through a symlinked config and keeps the link", async () => {
+	const { lstatSync, symlinkSync } = await import("node:fs");
+	const dir = mkdtempSync(join(tmpdir(), "boehsline-"));
+	const real = join(dir, "dotfiles-boehsline.json");
+	writeFileSync(real, JSON.stringify({ enable: [], watch: { a: 1 } }));
+	const link = join(dir, "boehsline.json");
+	symlinkSync(real, link);
+	setEnabled("watch", true, link);
+	assert.ok(lstatSync(link).isSymbolicLink(), "still a link");
+	assert.deepEqual(JSON.parse(readFileSync(real, "utf8")), { enable: ["watch"], watch: { a: 1 } });
+});

@@ -32,7 +32,7 @@
  * Pure node: no pi imports, so tests run under plain `node --test`.
  */
 
-import { readFileSync, writeFileSync, mkdirSync, renameSync } from "node:fs";
+import { mkdirSync, readFileSync, realpathSync, renameSync, writeFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { dirname, join } from "node:path";
 
@@ -140,10 +140,18 @@ export function setEnabled(name: string, on: boolean, path = userConfigPath()): 
 	if (on) list.add(name);
 	else list.delete(name);
 	const next: ConfigObject = { ...config, enable: [...list].sort() };
-	mkdirSync(dirname(path), { recursive: true });
-	const tmp = `${path}.tmp-${process.pid}`;
+	// Write through a symlink (dotfiles often link boehsline.json); renaming
+	// over the link itself would replace it with a plain file.
+	let target = path;
+	try {
+		target = realpathSync(path);
+	} catch {
+		// new file
+	}
+	mkdirSync(dirname(target), { recursive: true });
+	const tmp = `${target}.tmp-${process.pid}`;
 	writeFileSync(tmp, `${JSON.stringify(next, null, 2)}\n`);
-	renameSync(tmp, path);
+	renameSync(tmp, target);
 	return next.enable as string[];
 }
 
