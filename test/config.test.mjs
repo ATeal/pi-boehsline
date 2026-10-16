@@ -91,3 +91,10 @@ test("BOEHSLINE_ENABLE adds to the user file's enable list", () => {
 		else process.env.BOEHSLINE_ENABLE = prev;
 	}
 });
+
+test("userConfigPath: BOEHSLINE_CONFIG, else pi's agent dir (PI_CODING_AGENT_DIR), else ~/.pi/agent", async () => {
+	const { userConfigPath } = await import("../lib/config.ts");
+	assert.equal(userConfigPath({ BOEHSLINE_CONFIG: "/x/b.json", PI_CODING_AGENT_DIR: "/a" }), "/x/b.json");
+	assert.equal(userConfigPath({ PI_CODING_AGENT_DIR: "/a" }), "/a/boehsline.json");
+	assert.match(userConfigPath({}), /\.pi\/agent\/boehsline\.json$/);
+});

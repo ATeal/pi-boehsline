@@ -6,7 +6,8 @@
  *   1. Defaults written in each extension's code (neutral, nothing personal).
  *   2. Config sources: other packages, such as a private work companion,
  *      that register settings through the global registry below.
- *   3. The user file, ~/.pi/agent/boehsline.json (or $BOEHSLINE_CONFIG).
+ *   3. The user file: $BOEHSLINE_CONFIG, else boehsline.json in pi's agent
+ *      folder ($PI_CODING_AGENT_DIR, default ~/.pi/agent).
  *
  * Objects deep-merge; arrays and scalars replace.
  *
@@ -59,7 +60,7 @@ export function registerSource(name: string, config: ConfigObject): void {
 }
 
 export function userConfigPath(env: NodeJS.ProcessEnv = process.env): string {
-	return env.BOEHSLINE_CONFIG || join(homedir(), ".pi", "agent", "boehsline.json");
+	return env.BOEHSLINE_CONFIG || join(env.PI_CODING_AGENT_DIR || join(homedir(), ".pi", "agent"), "boehsline.json");
 }
 
 function isPlainObject(value: unknown): value is ConfigObject {
