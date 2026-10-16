@@ -80,3 +80,14 @@ test("setEnabled adds and removes, keeps other keys, refuses broken files", () =
 	writeFileSync(path, "{broken");
 	assert.throws(() => setEnabled("x", true, path), /broken/);
 });
+
+test("BOEHSLINE_ENABLE adds to the user file's enable list", () => {
+	const prev = process.env.BOEHSLINE_ENABLE;
+	try {
+		process.env.BOEHSLINE_ENABLE = " omlx , sc,";
+		assert.deepEqual(loadConfig({ enable: ["sc", "watch"] }).enable, ["sc", "watch", "omlx"]);
+	} finally {
+		if (prev === undefined) delete process.env.BOEHSLINE_ENABLE;
+		else process.env.BOEHSLINE_ENABLE = prev;
+	}
+});

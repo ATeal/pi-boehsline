@@ -4,6 +4,7 @@
 // state via the pane-focus-in hook in ~/.tmux.conf.
 
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
+import { optIn } from "../../lib/opt-in.ts";
 
 const TMUX_PANE = process.env.TMUX_PANE;
 const BG_REQUEST = "pi-background-tasks:request:v1";
@@ -107,7 +108,7 @@ async function hasRunningBackgroundTasks(pi: ExtensionAPI): Promise<boolean> {
   });
 }
 
-export default function (pi: ExtensionAPI): void {
+function main(pi: ExtensionAPI): void {
   if (!TMUX_PANE) return;
 
   watchForResponder(pi);
@@ -320,3 +321,5 @@ export default function (pi: ExtensionAPI): void {
       .catch(() => {});
   });
 }
+
+export default optIn("tmux-attention", "Highlight the tmux window when pi needs you", main);

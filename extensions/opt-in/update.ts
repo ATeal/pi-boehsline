@@ -20,6 +20,7 @@ import { dirname, join } from "node:path";
 
 import { DynamicBorder, VERSION, type ExtensionAPI, type Theme } from "@earendil-works/pi-coding-agent";
 import { Container, Text, getCapabilities, hyperlink, type AutocompleteItem } from "@earendil-works/pi-tui";
+import { optIn } from "../../lib/opt-in.ts";
 
 const TASK = "update:pi";
 const BANNER_TYPE = "pi-update-available";
@@ -232,7 +233,7 @@ function summary(result: UpdateResult, ok: boolean): { text: string; level: "inf
   return { text: `pi ${result.from} is current; packages reconverged`, level: "info" };
 }
 
-export default function (pi: ExtensionAPI) {
+function main(pi: ExtensionAPI) {
   // pi draws its own "Update Available" banner from run(), after extensions
   // load. Its instruction is only `pi update`, which refuses on this install.
   // Skip that check so the banner below is the one that shows.
@@ -360,3 +361,5 @@ export default function (pi: ExtensionAPI) {
     },
   });
 }
+
+export default optIn("update", "/update: update a mise-pinned pi", main);

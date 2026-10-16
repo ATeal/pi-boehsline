@@ -16,6 +16,7 @@ import { homedir } from "node:os";
 import { join } from "node:path";
 import { readFile, readdir, stat } from "node:fs/promises";
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
+import { optIn } from "../../lib/opt-in.ts";
 
 const DOWNLOADS = join(
   homedir(),
@@ -72,7 +73,7 @@ function age(mtime: Date): string {
   return `${Math.round(seconds / 86400)}d ago`;
 }
 
-export default function (pi: ExtensionAPI) {
+function main(pi: ExtensionAPI) {
   pi.registerCommand("sc", {
     description:
       "Attach the newest file from iCloud Downloads (iPad screenshot handoff)",
@@ -125,3 +126,5 @@ export default function (pi: ExtensionAPI) {
     },
   });
 }
+
+export default optIn("sc", "/sc: attach the newest screenshot from iCloud Downloads", main);

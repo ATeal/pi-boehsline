@@ -10,7 +10,8 @@
  *
  * Objects deep-merge; arrays and scalars replace.
  *
- * Only the user file controls `enable`. An opt-in extension decides whether to
+ * Only the user file (plus $BOEHSLINE_ENABLE, a comma list for tests and
+ * one-off `pi -e` runs) controls `enable`. An opt-in extension decides whether to
  * load inside its factory, and pi does not guarantee the order packages load in,
  * so a source that loads later could not reliably turn one on. Sources supply
  * settings, which extensions read lazily (at session_start or on use), so for
@@ -113,7 +114,11 @@ export function loadConfig(user: ConfigObject = readUserConfig().config): Boehsl
 		merged = merge(merged, settings);
 	}
 	merged = merge(merged, user);
-	return { ...merged, enable: stringList(user.enable) };
+	return { ...merged, enable: [...new Set([...stringList(user.enable), ...envEnable()])] };
+}
+
+function envEnable(env: NodeJS.ProcessEnv = process.env): string[] {
+	return (env.BOEHSLINE_ENABLE ?? "").split(",").map((s) => s.trim()).filter(Boolean);
 }
 
 export function enabled(name: string, config: BoehslineConfig = loadConfig()): boolean {

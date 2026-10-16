@@ -3,6 +3,7 @@ import { existsSync } from "node:fs";
 import { homedir } from "node:os";
 import { join } from "node:path";
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
+import { optIn } from "../../lib/opt-in.ts";
 
 // Mirror Claude Code's Stop hook (~/.claude/hooks/log-session.sh): keep
 // ~/Documents/Wiki/AI Sessions/ current so /checkin and /update-sessions see pi
@@ -29,7 +30,7 @@ const SYNC_BIN = existsSync(TRACKED_SYNC_BIN)
   ? TRACKED_SYNC_BIN
   : "pi-session-sync";
 
-export default function (pi: ExtensionAPI) {
+function main(pi: ExtensionAPI) {
   let sessionFile: string | undefined;
   let running = false;
   let queued = false;
@@ -81,3 +82,5 @@ export default function (pi: ExtensionAPI) {
     sync();
   });
 }
+
+export default optIn("wiki-session-log", "Mirror sessions into the Wiki via pi-session-sync", main);

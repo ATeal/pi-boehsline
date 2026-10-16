@@ -2,6 +2,7 @@ import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { readdir, readFile } from "node:fs/promises";
 import { homedir } from "node:os";
 import { join } from "node:path";
+import { optIn } from "../../lib/opt-in.ts";
 
 // Auto-register every model currently loaded in the local oMLX server so it
 // shows up in pi's /model picker. Re-runs on startup and on /reload.
@@ -100,7 +101,7 @@ async function loadConfigMetadata(): Promise<Map<string, ModelMeta>> {
   return map;
 }
 
-export default async function (pi: ExtensionAPI): Promise<void> {
+async function main(pi: ExtensionAPI): Promise<void> {
   // Register in the factory, awaited. Deferring to session_start made the
   // factory 0ms, but pi resolves the model scope from modelRuntime.getAvailable()
   // *before* session_start fires, so every launch warned "No models match
@@ -187,3 +188,5 @@ async function register(pi: ExtensionAPI): Promise<void> {
     }),
   });
 }
+
+export default optIn("omlx", "Register models loaded in a local oMLX server", main);
