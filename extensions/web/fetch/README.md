@@ -1,6 +1,6 @@
 # web_fetch (resilient) — fetch core
 
-This directory holds the **tiered fetch core** used by `../web.ts`, which owns the `web_fetch` tool registration (single registrar — registering `web_fetch` here as well causes a tool-conflict startup error).
+This directory holds the **tiered fetch core** used by `../index.ts`, which owns the `web_fetch` tool registration (single registrar — registering `web_fetch` here as well causes a tool-conflict startup error).
 
 ## Tiers
 

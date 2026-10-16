@@ -14,107 +14,57 @@ pi install git:github.com/ericboehs/pi-boehsline
 
 ## Extensions
 
-Core extensions load by default. To turn one off, use `pi config` or add a filter to the package entry. Opt-in extensions stay off until you run `/boehsline enable <name>`.
+Each extension is a folder under [`extensions/`](extensions) with its own README. Core extensions load by default; turn one off with `pi config` or a filter on the package entry. Opt-in extensions stay off until `/boehsline enable <name>` (or the `/boehsline` menu).
 
 ### Core
 
-#### ask
-A minimal AskUserQuestion. **Tool:** `ask`. It offers 2–4 options per question, lets you pick several, and can ask several questions at once.
-
-#### aa-info
-Prints a one-line [Artificial Analysis](https://artificialanalysis.ai) briefing whenever you switch models: intelligence and coding scores at your thinking level, speed, price per 1M tokens, cost per task, and the closest peers. **Needs:** `ARTIFICIAL_ANALYSIS_API_KEY`, set in the environment or available from the secret command. Without a key it does nothing.
-
-#### auto-session-name
-Names the session after the first turn, unless you already named it. **Command:** `/auto-name`.
-
-#### bg
-Runs commands in the background through a `background` flag on the built-in `bash` tool. That costs about 55 tokens of context and registers no extra tools. Logs are plain files the model reads with `read`. **Command:** `/bg`.
-
-#### canvas
-A live local web page for each session, where the agent posts tables, charts, diffs, checklists, timelines and findings next to the terminal. **Tool:** `canvas`. **Command:** `/canvas`.
-
-#### code-lint
-Runs your configured linters after the agent's `edit` and `write` calls, and feeds any errors back to the model. Each project's config lives in `~/.claude/code-lint/<project-hash>/config.json`; [`/setup-lint`](https://github.com/ericboehs/agent-plugins) writes it. The Claude Code `code-lint` plugin runs the same `lint.sh`.
-
-#### color
-Tints this session's input border, like Claude Code's `/color`. **Command:** `/color [name|#rrggbb|0-255|auto|off]`.
-
-#### compaction and compact-progress
-Cheaper compaction. On Anthropic models it resends the last request with a "summarize" turn appended, so the history is billed as a cache read. When that can't work, it writes a plain-text summary with thinking turned down. Other models use pi's default compaction. With `PI_CACHE_RETENTION=long`, an idle session with a large context is compacted 54 minutes after its last request, while the cache is still warm. compact-progress shows progress while compaction runs. **Command:** `/idle` (whether idle compaction is armed).
-
-#### context
-`/context`, like Claude Code's: what fills the context window, broken down by source. *(Bundled from pi-context.)*
-
-#### cursor-focus
-Replaces pi's fake reverse-video prompt cursor with your terminal's real cursor.
-
-#### footer
-A lean status line: model, context use, git state, provider quota chips and the boot timer. **Commands:** `/footer` (configure; Alt+S saves), `/boot` (startup timing stats), `/bypass` (turn the approval guardian's bypass on or off).
-
-#### goal
-Work toward a goal until a `--check` command exits 0 (or a same-model judge agrees), or until the time or step budget runs out. The remaining budget is shown to the model after each tool call. **Command:** `/goal [--for 30m] [--steps N] [--check "cmd"] <objective>`. **Tool:** `start_goal`. *(Bundled from pi-goal.)*
-
-#### image-preview
-Viewing images inside tmux: `chafa` thumbnails for image reads in the transcript, plus a full-size popup. **Command:** `/preview`. **Needs:** `chafa`.
-
-#### next-steps
-When the assistant ends with a numbered "Next steps:" block, `/1`, `/2` or `/3` sends that option as your prompt.
-
-#### openrouter-route
-Shows which upstream provider OpenRouter actually routed each turn to, in the footer.
-
-#### prompt-history
-Shell-style prompt history shared by every pi session on the machine, searched with Ctrl+R. pi also binds Ctrl+R; run `/boehsline defaults` to move pi's to Alt+R.
-
-#### provider-usage
-Usage and quota chips in the footer for codex, copilot, grok, cerebras, opencode-go, baseten, openrouter and ollama. **Tool:** `provider_usage`. Credentials come from the environment or the secret command; ollama and opencode-go can also read Safari's session cookies.
-
-#### stash
-Stash a half-typed message with Ctrl+S, as in Claude Code, and get it back later. **Command:** `/stash`. pi also binds Ctrl+S; run `/boehsline defaults` to move pi's to Alt+S.
-
-#### subagent
-A minimal subagent tool that runs a separate pi process for a focused task. **Tool:** `subagent`.
-
-#### turn-timer
-A toast when a run ends, plus a rolling log of where each model's time goes. **Command:** `/turn`.
-
-#### web
-Web search and fetching. Search runs through a configurable chain of backends; fetching escalates from plain HTTP to curl, then headless Chrome, then hosted services, then Safari, and returns YouTube transcripts. **Tools:** `web_search`, `web_fetch`. **Command:** `/web` (pick backends and test them). API keys come from the environment or the secret command. See [`extensions/web-providers/README.md`](extensions/web-providers/README.md).
-
-#### scheduler
-Scheduled prompts. **Commands:** `/loop` and `/once` (for this session); `/schedule` (durable, run unattended by a launchd runner). *(Bundled from pi-scheduler.)*
-
-#### agent-link
-Lets pi and Claude Code sessions on the same machine talk to each other. Address a live session with `@name`; you can list sessions, send messages, ask and wait, and reply. **Command:** `/agent-link`. *(Bundled from pi-agent-link, a fork of [alonw0/pi-claude-link](https://github.com/alonw0/pi-claude-link).)*
-
-#### boehsline
-Shows and changes what Boehsline loads, and applies its default keybindings. `/boehsline` opens a menu: toggle opt-in extensions (saved, with one reload, when you close it), apply the default keybindings, see which bundled packages loaded (and their versions), or show the merged config. **Command:** `/boehsline [enable|disable <name> | config | defaults [--force]]`.
+| Extension | What it does | Adds |
+|---|---|---|
+| [ask](extensions/ask/README.md) | A minimal AskUserQuestion: 2–4 options, multi-select, several questions at once | `ask` tool |
+| [aa-info](extensions/aa-info/README.md) | An Artificial Analysis briefing line whenever you switch models |  |
+| [auto-session-name](extensions/auto-session-name/README.md) | Names a fresh session after its first turn | `/auto-name` |
+| [bg](extensions/bg/README.md) | Background jobs through a `background` flag on `bash`, with a widget and logs | `/bg` |
+| [canvas](extensions/canvas/README.md) | A live local web page per session for tables, charts, diffs and findings | `canvas` tool, `/canvas` |
+| [code-lint](extensions/code-lint/README.md) | Runs your linters after `edit`/`write` and feeds errors back |  |
+| [color](extensions/color/README.md) | Tints the session's editor border, like Claude Code | `/color` |
+| [compact-progress](extensions/compact-progress/README.md) | Progress bar and learned ETA while compaction runs |  |
+| [compaction](extensions/compaction/README.md) | Cache-replay compaction, and idle compaction before the cache expires | `/idle` |
+| [cursor-focus](extensions/cursor-focus/README.md) | Your terminal's real cursor instead of pi's drawn one |  |
+| [footer](extensions/footer/README.md) | A lean status line you can reorder and trim | `/footer`, `/boot`, `/bypass` |
+| [image-preview](extensions/image-preview/README.md) | Real images inside tmux, and a full-size popup | `/preview` |
+| [next-steps](extensions/next-steps/README.md) | Type `/2` to pick option 2 of a "Next steps:" list |  |
+| [openrouter-route](extensions/openrouter-route/README.md) | Which upstream OpenRouter routed each turn to, in the footer |  |
+| [prompt-history](extensions/prompt-history/README.md) | Shell-style prompt history shared by every pi, with Ctrl+R search | Ctrl+R |
+| [provider-usage](extensions/provider-usage/README.md) | Usage and quota chips for codex, copilot, grok and more | `provider_usage` tool |
+| [stash](extensions/stash/README.md) | Park a draft with Ctrl+S and get it back later | Ctrl+S, `/stash` |
+| [subagent](extensions/subagent/README.md) | Run a separate pi for a focused task | `subagent` tool |
+| [turn-timer](extensions/turn-timer/README.md) | A toast when a run ends, and per-model step and time stats | `/turn stats` |
+| [web](extensions/web/README.md) | Web search across backends you order, and a fetch that escalates until it works | `web_search`, `web_fetch`, `/web` |
+| [boehsline](extensions/boehsline/README.md) | The menu for opt-ins, default keybindings, bundled packages and config | `/boehsline` |
 
 ### Opt-in
 
-#### approval-guardian
-A fail-closed approval gate for tool calls, with a guardian model that reviews risky calls. Opt-in because, once on, risky calls wait for review: set it up with `/approval-guardian` after enabling. **Command:** `/approval-guardian`. *(Bundled from pi-approval-guardian, a fork of [mics8128/pi-approval-guardian](https://github.com/mics8128/pi-approval-guardian).)*
+| Extension | What it does | Adds |
+|---|---|---|
+| [approval-guardian](extensions/opt-in/approval-guardian/README.md) | Fail-closed gate: a reviewer model checks risky tool calls | `/approval-guardian` |
+| [watch](extensions/opt-in/watch/README.md) | Slack, bot feed and notification watcher with digests and drafts | `/watch`, `watch_items` tool |
+| [meeting](extensions/opt-in/meeting/README.md) | Live meeting copilot: questions worth asking, from the transcript | `/meeting`, `/q<N>` |
+| [omlx](extensions/opt-in/omlx/README.md) | Adds models loaded in a local oMLX server to `/model` |  |
+| [sc](extensions/opt-in/sc/README.md) | Attach the newest screenshot from iCloud Downloads | `/sc` |
+| [tmux-attention](extensions/opt-in/tmux-attention/README.md) | Highlights the tmux window when pi needs you |  |
+| [update](extensions/opt-in/update/README.md) | `/update` for a mise-pinned pi | `/update` |
+| [wiki-session-log](extensions/opt-in/wiki-session-log/README.md) | Runs a command with the session file after each turn |  |
 
-#### watch
-An in-session watcher for Slack, a team bot feed, and Mac and iPhone notifications. A small model sorts each new message into needs-you, context or drop. The top items show in a widget, and a digest arrives every 15 minutes. Work text goes only to the models you allow. It can offer drafts and, with tight limits, start a turn itself (meeting prep, drafts while you're away, urgent pings). **Commands:** `/watch` (start, stop, list, waits, digest, recap, mute and more). **Tool:** `watch_items`. **Settings:** `watch`, `work` (see below). **Needs:** [`slk`](https://github.com/ericboehs/slk) for Slack; `ical` for meeting prep; `qmd` for notes lookups. Notifications need macOS, `swiftc` and Full Disk Access for your terminal: `/watch start` builds `bin/notif-watch` from [`native/notif-watch`](native/notif-watch/notif-watch.swift) the first time (about 10 seconds).
+### Bundled packages
 
-#### meeting
-A live meeting copilot. It follows a meeting transcript (`~/.local/share/meeting-capture/*.jsonl`, written by a separate capture tool) and suggests questions worth asking out loud, using only your work models. **Commands:** `/meeting`, `/q<N>` (research question N with a subagent). **Settings:** `meeting`, `work`.
+Git subtrees under [`packages/`](packages), kept verbatim (see [below](#bundled-packages-git-subtrees)). The approval guardian is one too, loaded through its opt-in wrapper.
 
-#### omlx
-Adds whatever models your local oMLX server (an OpenAI-compatible MLX server) has loaded to `/model`. **Env:** `OMLX_BASE_URL`, `OMLX_MODEL_DIR`.
-
-#### sc
-Attaches the newest file in iCloud Drive's Downloads folder. It's meant for handing off screenshots from an iPad while you're SSH'd in. **Command:** `/sc [instructions]`.
-
-#### tmux-attention
-Highlights the tmux window number when pi finishes or is waiting on you in a background window. **Needs:** a `pane-focus-in` hook in `~/.tmux.conf` that clears the window options `@special_activity` and `@job_done`.
-
-#### update
-`/update` for a pi that mise installs from a pin: it runs your mise task that moves the pin and reinstalls. `/update check` only reports. **Settings:** `update`.
-
-#### wiki-session-log
-Runs a command with the session's JSONL file after each turn, so an outside tool can mirror sessions into notes. **Settings:** `wiki-session-log`.
+| Package | What it does | From |
+|---|---|---|
+| [context](packages/context/README.md) | `/context`, like Claude Code's: what fills the context window | pi-context |
+| [goal](packages/goal/README.md) | Work toward a goal until a check passes or the budget runs out (`/goal`, `start_goal`) | pi-goal |
+| [scheduler](packages/scheduler/README.md) | `/loop` and `/once` in the session; `/schedule` for durable unattended runs | pi-scheduler |
+| [agent-link](packages/agent-link/README.md) | pi and Claude Code sessions on one machine talk to each other (`@name`, `/agent-link`) | pi-agent-link |
 
 ## Configuration reference
 

@@ -1,6 +1,6 @@
-# web-providers
+# web search providers
 
-Backends for the `web_search` tool in `../web.ts`. One tool, several providers,
+Backends for the `web_search` tool in `../index.ts`. One tool, several providers,
 one operator-owned order. The model never picks a vendor.
 
 - `config.ts` — persisted settings, chain state, key resolution
@@ -356,7 +356,7 @@ length only — never the backend — and does not touch the saved config.
 
 ### `long` does not buy accuracy
 
-Ten ground-truth queries, every backend, both modes (`web-providers/eval.mjs`):
+Ten ground-truth queries, every backend, both modes (`providers/eval.mjs`):
 
 | mode | backend | correct | avg chars | correct per 10K chars |
 |---|---|---:|---:|---:|
