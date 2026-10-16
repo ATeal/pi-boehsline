@@ -1,0 +1,50 @@
+{
+  "name": "pi-agent-link",
+  "version": "0.1.0",
+  "description": "Mesh pi coding-agent sessions with Claude Code: appear in each other's session lists and exchange messages over Claude's cross-session socket protocol.",
+  "type": "module",
+  "main": "index.ts",
+  "license": "MIT",
+  "author": "alonw0",
+  "keywords": [
+    "pi-package",
+    "pi-extension",
+    "pi-coding-agent",
+    "claude-code",
+    "agent-mesh",
+    "inter-agent-messaging"
+  ],
+  "pi": {
+    "extensions": [
+      "./index.ts"
+    ],
+    "skills": [
+      "./skills"
+    ]
+  },
+  "peerDependencies": {
+    "@earendil-works/pi-coding-agent": "*",
+    "typebox": "*"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/ericboehs/pi-agent-link.git"
+  },
+  "homepage": "https://github.com/ericboehs/pi-agent-link#readme",
+  "bugs": {
+    "url": "https://github.com/ericboehs/pi-agent-link/issues"
+  },
+  "engines": {
+    "node": ">=20.19"
+  },
+  "files": [
+    "index.ts",
+    "claude-protocol.ts",
+    "mentions.ts",
+    "skills",
+    "README.md",
+    "LICENSE",
+    "SECURITY.md",
+    "CHANGELOG.md"
+  ]
+}
