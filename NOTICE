@@ -1,0 +1,22 @@
+Boehsline
+Copyright 2026 Eric Boehs. MIT License (see LICENSE).
+
+The packages/ folder holds git subtrees. Each one keeps its own LICENSE and
+NOTICE files, and those govern the code in that folder:
+
+packages/agent-link
+  Forked from alonw0/pi-claude-link (https://github.com/alonw0/pi-claude-link).
+  MIT License, Copyright (c) 2026 alonw0. See packages/agent-link/LICENSE.
+
+packages/approval-guardian
+  Forked from mics8128/pi-approval-guardian (https://github.com/mics8128/pi-approval-guardian).
+  MIT License, Copyright (c) 2026 pi-approval-guardian contributors.
+  Includes modified portions of OpenAI Codex Guardian materials under the
+  Apache License 2.0. See packages/approval-guardian/NOTICE and
+  packages/approval-guardian/LICENSES/Apache-2.0.txt.
+
+packages/context, packages/scheduler, packages/goal
+  Eric Boehs, MIT License.
+
+Each subtree's full git history, including upstream authorship, is kept in
+this repository.

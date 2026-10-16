@@ -42,6 +42,35 @@ const key = Symbol.for("boehsline.config.sources");
 
 Only your own file can turn opt-in extensions on. A package can supply settings but can't enable anything.
 
+## Bundled packages (git subtrees)
+
+`packages/` holds the repos that used to ship on their own. Each is a git subtree with its full history, and stays verbatim so pulls apply cleanly. The root `package.json` lists their entry files.
+
+| Folder | From | Upstream (forks) |
+|---|---|---|
+| `packages/context` | ericboehs/pi-context | |
+| `packages/scheduler` | ericboehs/pi-scheduler | |
+| `packages/agent-link` | ericboehs/pi-agent-link | alonw0/pi-claude-link |
+| `packages/approval-guardian` | ericboehs/pi-approval-guardian | mics8128/pi-approval-guardian |
+| `packages/goal` | ericboehs/pi-goal | |
+
+Remotes aren't stored in git. Set them up once per clone:
+
+```bash
+git remote add agent-link-upstream https://github.com/alonw0/pi-claude-link.git
+git remote add approval-guardian-upstream https://github.com/mics8128/pi-approval-guardian.git
+```
+
+Pull upstream changes into a subtree:
+
+```bash
+git subtree pull --prefix=packages/approval-guardian approval-guardian-upstream main
+```
+
+Change subtree code directly in this repo. If you want a change to go back upstream, `git subtree split --prefix=packages/<name>` produces a branch you can open a PR from.
+
+See [NOTICE](NOTICE) for credits and licenses.
+
 ## Development
 
 ```bash
