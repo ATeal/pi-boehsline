@@ -2307,62 +2307,61 @@ export default function canvas(pi: ExtensionAPI) {
   const canvasTool = defineTool({
     name: "canvas",
     label: "Canvas",
-    description:
-      "Show rich output on this session's live web page (the canvas) that the user keeps open beside the terminal. " +
-      "Writes one section per call; the same id replaces it. Kinds: markdown (GFM tables, code, ```mermaid fences), " +
-      "html (a self-contained page or fragment, shown in a sandboxed frame), html-plan (a packed /html-plan file via path), " +
-      "image (png/jpg/gif/webp/svg via path), mermaid (diagram source), " +
-      'chart (body is a JSON spec: {"type": bar|line|area|scatter|pie|donut, "labels": [one per point], "series": [{"name", "data": [numbers, null for a gap], "color"?}], ' +
-      '"stacked"?, "horizontal"? (bar), "x"?: {"label"}, "y"?: {"label", "unit", "prefix", "min", "max"}, "height"?, "caption"?}; scatter data is [[x, y], ...] and needs no labels; ' +
-      'colours come from the page, so leave "color" out unless it means something: c1-c8, accent, ok, warn, bad), ' +
-      'terminal (command output: body is the raw output, or JSON {"command", "output", "exit", "duration" (seconds or text), "cwd"}; ANSI colours kept, long output folds, lines can be filtered), ' +
-      'stats (a row of number cards: JSON [{"label", "value", "unit"?, "prefix"?, "delta"? (number or text), "good"?: up|down|none, "spark"?: [numbers], "note"?}]), ' +
-      'table (sortable and filterable: JSON {"columns": [{"label", "key"?, "type"?: text|number|bar|spark|tag|link|code, "unit"?, "prefix"?}], "rows": [[cells]] or [{key: cell}], "sort"?: {"column", "desc"}, "caption"?}; ' +
-      'a spark cell is an array of numbers, a link cell a URL or {"text", "href"}; types are inferred when left out; or path to a .csv/.tsv), ' +
-      'compare (two images with a before/after slider: paths [before, after]; optional body {"labels": [a, b], "mode": slider|side|onion}), ' +
-      'steps (a checklist with progress: JSON [{"label", "status": done|active|todo|failed|skipped|blocked, "note"?, "detail"?}] or {"title", "steps"}; plain strings are todo steps; replace the same id as work moves), ' +
-      'pipeline (a live metro map of a multi-stage, multi-agent workflow: JSON {"title"?, "stages": [{"label", "note"?, "status"?, "steps"?: [{"label", "note"?, "badge"? (e.g. "9/10"), "status": todo|active|done|back|failed|skipped}] or "lanes"?: [{"label"?, "steps"}] for parallel work, "loop"?: {"label", "note"?} for a revise arc from the last step back to the first}]}; ' +
-      'a stage with no steps is one node; back means sent back; replace the same id as work moves), ' +
-      'kanban (a board of work items by state: JSON {"title"?, "progress"? (true: a bar of counts per column), "columns": [{"label", "tone"?, "limit"? (WIP limit), "more"? (cards left out), "compact"? (true: one-line cards, folded when nothing else is on the board), "cards": ["text" or {"title", "id"?, "note"?, "tag"?, "owner"?, "tone"?, "href"? (http/https)}]}], "caption"?}; titles and notes take `code`, **bold** and [links](https://...); up to 8 columns; tone: ok|warn|bad|accent|dim|c1-c8), ' +
-      'json (any JSON as a collapsible, searchable tree: body is the JSON itself, or path to a .json file), ' +
-      'timeline (events in time: JSON [{"at" (ISO time or text), "title", "note"?, "tag"?, "tone"?: ok|warn|bad|accent|dim|c1-c8}] or {"events", "caption", "order": time|given}; dated events are sorted and grouped by day), ' +
-      "diff (a unified patch in body or path, or omit both and pass ref/paths to have git produce it; shown GitHub-style, one block per file, with a split view), " +
-      'code (lines of a source file with line numbers: path to the file, read when posted; body optional JSON {"lines": "40-80", "highlight": ["42", "50-52"], "notes": [{"lines": "42" or "44-46", "text" (takes `code`, **bold**, [links](https://...)), "tone"?: ok|warn|bad|accent|dim}], "lang"?, "caption"?}; a note shows as a callout under its lines), ' +
-      'tree (a file tree from flat paths: JSON {"root"?, "caption"?, "entries": {"src/a.ts": "added"|"changed"|"deleted"|"renamed"|"moved" or a note, or {"tag", "note"}}} or an array of paths; folders are built from the paths; a path ending in / is a folder, to note it), ' +
-      'options (2-6 choices side by side: JSON {"question"?, "options": [{"label", "summary"?, "pros"?: [text], "cons"?: [text], "cost"?, "scores"?: {"Effort": 0-5, ...}, "recommended"?: true (one at most), "pick"? (the prompt its Pick button sends to pi)}]}), ' +
-      "pdf (a .pdf via path, in a viewer), video (an mp4/m4v/webm/mov screen recording via path, with controls), finding (appends one durable line to the findings log; id not needed). " +
-      "html sections get the canvas design kit, so write little CSS: the page's colours as variables (--ink --dim --line --soft --card --accent --ok --warn --bad, chart colours --c1 to --c8), " +
-      "light and dark handled, buttons (class primary), inputs, range sliders, select and tables already styled, and classes k-row, k-col, k-grid, k-card, k-stat (b + span), k-field (label above a control), k-muted, k-tag, k-ok, k-warn, k-bad, k-bar (> i). " +
-      "They run in an isolated frame: no network, no access to the page, and localStorage lasts only until reload. " +
-      "Use remove: true to delete a section. Returns the page URL; it does not open a browser.",
+    // Every kind, with when to use it and its body format, in one list. The
+    // "lightest kind" guideline points here instead of repeating the kinds
+    // (that duplication was ~1,200 tokens of every session's prefix).
+    description: [
+      "Post to this session's live canvas page, beside the terminal: one section per call, same id replaces, remove: true deletes. Returns the URL. Kinds (when; body):",
+      "- markdown: short tables, lists, prose (GFM, ```mermaid)",
+      "- table: data over ~20 rows; sorts, filters. {columns:[{label,key?,type?:text|number|bar|spark|tag|link|code,unit?,prefix?}],rows:[[..]]|[{key:..}],sort?:{column,desc},caption?}; spark = number array, link = URL|{text,href}; types inferred; or .csv/.tsv path",
+      "- stats: a few headline numbers. [{label,value,unit?,prefix?,delta?,good?:up|down|none,spark?,note?}]",
+      "- chart: numbers to compare or follow over time. {type:bar|line|area|scatter|pie|donut,labels,series:[{name,data(null=gap),color?}],stacked?,horizontal?,x?:{label},y?:{label,unit,prefix,min,max},height?,caption?}; scatter data [[x,y]], no labels; color only when it means something",
+      "- terminal: output worth keeping (a failing run, a build error). Raw, or {command,output,exit,duration,cwd}; ANSI kept, folds, filterable",
+      "- compare: before/after screenshots. paths [before,after]; body? {labels,mode:slider|side|onion}",
+      "- image: png/jpg/gif/webp/svg via path",
+      "- steps: a multi-step plan as it runs. [{label,status:done|active|todo|failed|skipped|blocked,note?,detail?}]|{title,steps}; strings = todo",
+      "- pipeline: a multi-stage or multi-agent workflow (parallel work, reviews that send work back). {title?,stages:[{label,note?,status?,steps?:[{label,note?,badge?,status:todo|active|done|back|failed|skipped}]|lanes?:[{label?,steps}],loop?:{label,note?}}]}; lanes = parallel; loop = revise arc last→first; a stage without steps is a node; back = sent back",
+      "- kanban: work items by state (a triage, a review queue). {title?,progress?(count bar),columns:[{label,tone?,limit?(WIP),more?(cards left out),compact?(one-line cards),cards:[text|{title,id?,note?,tag?,owner?,tone?,href?}]}],caption?}; ≤8 columns",
+      "- json: an API response or config to explore (body or .json path)",
+      "- timeline: an incident or a sequence of events. [{at(ISO|text),title,note?,tag?,tone?}]|{events,caption,order:time|given}; dated events group by day",
+      "- mermaid: flows and structure",
+      "- code: to walk through lines of a file (highlight, note) instead of pasting a fence. path = file; body? {lines:\"40-80\",highlight:[\"42\"],notes:[{lines,text,tone?}],lang?,caption?}",
+      "- tree: a repo layout or the files a change touches. {root?,caption?,entries:{path: added|changed|deleted|renamed|moved|note|{tag,note}}}|[paths]; trailing / = folder",
+      "- diff: a change. Patch in body/path, or git makes it from ref/paths",
+      "- options: a decision between approaches (not a pros/cons table). {question?,options:[{label,summary?,pros?,cons?,cost?,scores?:{Effort:0-5},recommended?(one),pick?(prompt for its Pick button)}]}, 2-6",
+      "- video: a screen recording of a UI flow or bug, via path",
+      "- pdf: a document, via path",
+      "- html-plan: a packed /html-plan file, via path",
+      "- html: only something to interact with (calculator, sliders, what-if). Sandboxed, no network. Pre-styled: vars --ink --dim --line --soft --card --accent --ok --warn --bad --c1..8, light/dark, .primary buttons, inputs, sliders, tables; classes k-row k-col k-grid k-card k-stat(b+span) k-field k-muted k-tag k-ok k-warn k-bad k-bar(>i)",
+      "- finding: one durable line in the findings log; no id",
+      "kanban/code text takes `code`, **bold**, [links](https://..). tone/color: ok|warn|bad|accent|dim|c1-c8.",
+    ].join("\n"),
     promptSnippet: "canvas: put tables, charts, checklists, command output, timelines, diagrams, screenshots and findings on this session's live web page",
     promptGuidelines: [
-      "The user keeps the canvas open beside the terminal and expects it to grow as you work. Use canvas proactively, without being asked.",
-      "Record a finding the moment you confirm a root cause, a gotcha, a non-obvious constraint or API fact, or a decision and its reason. Not progress updates.",
-      "When a reply would contain a table, an option or state matrix, a diagram, a plan (as steps), or a list of commands, put it on the canvas as its own section and keep the chat answer short.",
-      "Pick the lightest canvas kind that fits: markdown for short tables, lists and prose; table for data over ~20 rows; stats for a few headline numbers; chart for numbers to compare or follow over time; " +
-        "terminal for command output worth keeping (a failing run, a build error); compare for before/after screenshots; steps for a multi-step plan as it runs; pipeline for a multi-stage or multi-agent workflow (parallel work, reviews that send work back); kanban for many work items by state (a triage of issues, a review queue); json for an API response or config to explore; timeline for an incident or a sequence of events; mermaid for flows and structure; " +
-        "code to walk through specific lines of a file (highlight and note the lines that matter, rather than pasting a fence); tree for a repo layout or the files a change touches; options for a decision between approaches (instead of a pros/cons table); video for a screen recording of a UI flow or bug; pdf for a document; html only for something to interact with (a calculator, sliders, a what-if).",
-      "When work runs through other agents (subagents, agent-link handoffs, a pstack run), post it as a pipeline section when it starts, " +
-        "one step per agent or role, and replace the same id as each one starts, finishes or sends work back, so its statuses stay current.",
-      "A pipeline's stages run in order, one after another. Put independent work items that move at the same time (several PRs, packages, repos) in parallel lanes of one stage, a labelled lane per item with its own steps, not in stages of their own; for many items, a kanban may fit better.",
-      "Start a new section for each new topic, with a stable id; replace that id as the topic changes instead of stacking versions.",
-      "After verifying UI work with screenshots, add the one that shows the result as an image section, or a compare section when there is a clear before and after.",
-      "For a body over ~2 KB, write a file and pass path; the data then stays out of your context.",
-      "Put a draft (a Slack post, an email, a PR or issue comment, a reply) in a markdown blockquote, with > on every line, not in a code fence: a fence shows as unwrapped code.",
-      "Sections with ids starting auto- are maintained automatically (Files changed, Screenshots, Tasks, Haiku notes); leave them alone.",
+      "The user keeps the canvas open and expects it to grow as you work: use it proactively, unasked.",
+      "Record a finding once you confirm a root cause, gotcha, non-obvious constraint or API fact, or a decision and why; not progress.",
+      "A table, option or state matrix, diagram, plan (as steps) or command list goes on the canvas as its own section; keep chat short.",
+      "Pick the lightest canvas kind that fits (the tool says when each fits).",
+      "Work via other agents (subagents, agent-link handoffs, a pstack run): post a pipeline section when it starts, a step per agent or role, and replace that id as each starts, finishes or sends work back.",
+      "Pipeline stages run in order; independent work items moving at once (PRs, packages, repos) are labelled parallel lanes of one stage; for many, a kanban may fit better.",
+      "One section per topic, stable id; replace it as the topic changes, never stack versions.",
+      "After verifying UI work with screenshots, post the result as an image section, or a compare section when there is a clear before and after.",
+      "Body over ~2 KB: write a file and pass path, keeping it out of your context.",
+      "Drafts (Slack post, email, PR or issue comment, reply) go in a markdown blockquote, > on every line, not a code fence.",
+      "Leave auto-* sections alone (Files changed, Screenshots, Tasks, Haiku notes).",
       "Never put secrets, tokens or passwords on the canvas.",
     ],
     parameters: Type.Object({
-      id: Type.Optional(Type.String({ description: "Stable lowercase slug, e.g. 'hook-points'. Required except for kind 'finding'." })),
-      title: Type.Optional(Type.String({ description: "Section heading" })),
-      kind: Type.Union(KINDS.map((k) => Type.Literal(k)), { description: "Section kind" }),
-      body: Type.Optional(Type.String({ description: "Markdown, HTML, mermaid source, chart JSON or finding text" })),
-      path: Type.Optional(Type.String({ description: "File to copy in: packed html-plan, html page, image, pdf, video, chart JSON, or a patch for diff; for code, the source file to show. Relative to the cwd." })),
-      ref: Type.Optional(Type.String({ description: 'diff without body/path: what git compares the working tree to. Default HEAD; a commit; a range like main..branch; or "staged".' })),
-      paths: Type.Optional(Type.Array(Type.String(), { description: "diff without body/path: only these files (untracked ones show as new). Default: every change. compare: [before, after] image files." })),
-      repo: Type.Optional(Type.String({ description: "diff without body/path: the repository directory. Default the cwd." })),
-      remove: Type.Optional(Type.Boolean({ description: "Delete the section with this id" })),
+      id: Type.Optional(Type.String({ description: "Stable slug, e.g. hook-points; not for finding" })),
+      title: Type.Optional(Type.String()),
+      // A plain string enum: a union of literals serializes as 22 {const,type} objects.
+      kind: Type.Unsafe<(typeof KINDS)[number]>({ type: "string", enum: [...KINDS] }),
+      body: Type.Optional(Type.String({ description: "Text, source or JSON spec" })),
+      path: Type.Optional(Type.String({ description: "File to show, relative to cwd" })),
+      ref: Type.Optional(Type.String({ description: "diff: git base (HEAD, commit, a..b, staged)" })),
+      paths: Type.Optional(Type.Array(Type.String(), { description: "diff: these files only; compare: [before, after]" })),
+      repo: Type.Optional(Type.String({ description: "diff: repo dir (cwd)" })),
+      remove: Type.Optional(Type.Boolean()),
     }),
     executionMode: "sequential",
     async execute(_id, params, _signal, _onUpdate, ctx) {

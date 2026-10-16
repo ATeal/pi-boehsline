@@ -449,13 +449,26 @@ test("prompt copy points at the newer kinds and keeps bodies out of context", as
   await canvasExtension(pi);
   assert.match(tool.promptSnippet, /checklists, command output, timelines/);
   const rules = tool.promptGuidelines.join("\n");
-  assert.match(rules, /a plan \(as steps\)/);
+  // Every rule, by its substance (the wording was tightened to save tokens).
+  assert.match(rules, /proactively, unasked/);
+  assert.match(rules, /Record a finding .* root cause, gotcha, non-obvious constraint or API fact, or a decision/);
+  assert.match(rules, /plan \(as steps\)/);
+  assert.match(rules, /lightest canvas kind that fits/);
+  assert.match(rules, /subagents, agent-link handoffs, a pstack run\): post a pipeline section/);
+  assert.match(rules, /independent work items .* parallel lanes of one stage/);
+  assert.match(rules, /stable id; replace it as the topic changes/);
   assert.match(rules, /or a compare section when there is a clear before and after/);
-  assert.match(rules, /over ~2 KB, write a file and pass path/);
-  assert.match(rules, /subagents, agent-link handoffs, a pstack run\), post it as a pipeline section/);
-  assert.match(rules, /independent work items .* in parallel lanes of one stage/);
-  for (const k of ["terminal", "stats", "table", "compare", "steps", "pipeline", "kanban", "json", "timeline", "code", "tree", "options", "video", "pdf"]) assert.match(rules, new RegExp(`\\b${k} (for|to) `), `lightest-kind rule names ${k}`);
-  for (const k of ["code (", "tree (", "options (", "pdf (", "video ("]) assert.ok(tool.description.includes(k), `description covers ${k}`);
+  assert.match(rules, /over ~2 KB: write a file and pass path/);
+  assert.match(rules, /blockquote, > on every line, not a code fence/);
+  assert.match(rules, /auto-\* sections alone/);
+  assert.match(rules, /Never put secrets/);
+  // Every kind has one line in the description: when to use it, then its body.
+  const kinds = tool.parameters.properties.kind;
+  assert.equal(kinds.type, "string", "a plain string enum, not 22 const objects");
+  for (const k of kinds.enum) assert.match(tool.description, new RegExp(`^- ${k}: \\S`, "m"), `description covers ${k}`);
+  for (const k of ["terminal", "stats", "table", "compare", "steps", "pipeline", "kanban", "json", "timeline", "code", "tree", "options", "video", "pdf"]) {
+    assert.match(tool.description, new RegExp(`^- ${k}: [^.(]*[a-z]`, "m"), `${k} says when to use it`);
+  }
 });
 
 test("parseLineRange reads one line or a range", () => {
