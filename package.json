@@ -48,9 +48,10 @@
       "packages/agent-link/index.ts",
       "packages/goal/extensions/goal.ts"
     ],
+    "//skills": "agent-link's pi-agent-link skill only: its grok-bot-pi-link skill drives a personal phone-to-Grok bridge (contrib/grok-bot) and would only confuse other installs.",
     "skills": [
       "skills",
-      "packages/agent-link/skills"
+      "packages/agent-link/skills/pi-agent-link"
     ],
     "prompts": [
       "prompts/*.md"
