@@ -24,7 +24,7 @@ jobs:
       - run: npm install --no-audit --no-fund
       # pi's own packages are runtime peers; link the pinned version for the tests.
       - run: scripts/typecheck.sh --link-only
-      - run: node --test test/*.test.mjs
+      - run: npm test
 
   typecheck:
     runs-on: ubuntu-latest

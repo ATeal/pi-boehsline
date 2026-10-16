@@ -17,7 +17,7 @@
     "node": ">=22.18.0"
   },
   "scripts": {
-    "test": "node --test test/*.test.mjs",
+    "test": "node --test test/*.test.mjs packages/goal/test/*.test.mjs packages/scheduler/test/*.test.mjs",
     "typecheck": "scripts/typecheck.sh",
     "build:notif-watch": "scripts/build-notif-watch.sh"
   },
