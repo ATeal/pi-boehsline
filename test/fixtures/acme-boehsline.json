@@ -1,0 +1,21 @@
+{
+  "//": "Test settings for watch and meeting: a fictional company, Acme. Mirrors a real work setup (one work workspace on a work-only provider, a team bot feed, a VIP, a redaction rule) without naming anyone real.",
+  "enable": ["watch", "meeting"],
+  "work": {
+    "label": "Acme Copilot",
+    "providers": ["github-copilot"],
+    "models": ["github-copilot/claude-haiku-5.5"],
+    "researchModel": "github-copilot/claude-opus-5.5",
+    "sensitive": "employee IDs, badge numbers",
+    "ghHost": "github.acme.example",
+    "redact": [{ "pattern": "\\bEMP\\d{6}\\b", "flags": "g", "replace": "[EMP]" }]
+  },
+  "watch": {
+    "workspaces": ["guild", "acme", "boehs"],
+    "workWorkspaces": ["acme"],
+    "feed": { "cli": "team-bot-feed", "workspace": "guild", "channel": "C0FEED00001", "label": "#team-bot-feed" },
+    "vips": ["Jordan Blake"],
+    "prepSources": ["Acme (Work)"]
+  },
+  "meeting": { "qmdCollections": ["wiki", "team-docs"] }
+}
