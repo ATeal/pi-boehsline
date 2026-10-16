@@ -1,0 +1,39 @@
+{
+  "name": "pi-boehsline",
+  "version": "0.0.0",
+  "private": true,
+  "description": "Boehsline (\"bays-line\"): the baseline for pi. Extensions, skills, prompts, and opinionated defaults in one package.",
+  "keywords": ["pi-package"],
+  "license": "MIT",
+  "author": "Eric Boehs",
+  "repository": { "type": "git", "url": "git+https://github.com/ericboehs/pi-boehsline.git" },
+  "type": "module",
+  "engines": { "node": ">=22.18.0" },
+  "scripts": {
+    "test": "node --test test/*.test.mjs",
+    "typecheck": "tsc -p ."
+  },
+  "peerDependencies": {
+    "@earendil-works/pi-coding-agent": "*",
+    "@earendil-works/pi-tui": "*",
+    "typebox": "*"
+  },
+  "//peerDependenciesMeta": "Optional so pi's git installer (a plain npm install in the clone) does not pull a copy of pi in behind it. pi supplies these at runtime; CI installs them only to typecheck.",
+  "peerDependenciesMeta": {
+    "@earendil-works/pi-coding-agent": { "optional": true },
+    "@earendil-works/pi-tui": { "optional": true },
+    "typebox": { "optional": true }
+  },
+  "pi": {
+    "//": "Explicit globs: lib/ holds imported modules, not extensions. Opt-in extensions are declared like the rest and gate themselves (lib/opt-in.ts), because pi settings filters can only narrow what a manifest declares.",
+    "extensions": [
+      "extensions/*.ts",
+      "extensions/*/index.ts",
+      "extensions/opt-in/*.ts",
+      "extensions/opt-in/*/index.ts"
+    ],
+    "skills": ["skills"],
+    "prompts": ["prompts/*.md"],
+    "themes": ["themes/*.json"]
+  }
+}
