@@ -15,12 +15,13 @@
  * on the package entry in settings.json), not here.
  */
 
-import { mkdirSync, realpathSync, renameSync, writeFileSync } from "node:fs";
+import { mkdirSync, readdirSync, readFileSync, realpathSync, renameSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
-import { type ExtensionAPI, type ExtensionCommandContext, getAgentDir } from "@earendil-works/pi-coding-agent";
+import { type ExtensionAPI, type ExtensionCommandContext, getAgentDir, type Theme } from "@earendil-works/pi-coding-agent";
 import {
 	type AutocompleteItem,
+	type Component,
 	Key,
 	matchesKey,
 	type SettingItem,
@@ -74,7 +75,7 @@ async function applyDefaults(ctx: ExtensionCommandContext, force: boolean, reloa
 	await ctx.reload();
 }
 
-function statusText(): string {
+function statusText(pi?: ExtensionAPI): string {
 	const lines: string[] = [];
 	const known = [...optIns().values()].sort((a, b) => a.name.localeCompare(b.name));
 	lines.push("Opt-in extensions:");
@@ -83,6 +84,12 @@ function statusText(): string {
 
 	const enabledButMissing = loadConfig().enable.filter((n) => !optIns().has(n));
 	if (enabledButMissing.length) lines.push(`  Enabled but not found: ${enabledButMissing.join(", ")}`);
+
+	if (pi) {
+		lines.push("", "Bundled packages:");
+		for (const p of bundledPackages(pi.getCommands()))
+			lines.push(`  ${p.loaded ? "●" : "○"} ${p.dir.padEnd(18)} ${p.name}@${p.version}${p.loaded ? `  ${p.commands.join(" ")}` : ""}`);
+	}
 
 	const src = [...sources().keys()];
 	lines.push("", `Config: ${userConfigPath()}`);
@@ -93,12 +100,86 @@ function statusText(): string {
 	return lines.join("\n");
 }
 
+const ROOT = fileURLToPath(new URL("..", import.meta.url));
+const PACKAGES_DIR = join(ROOT, "packages");
+const VERSION: string = (() => {
+	try {
+		return JSON.parse(readFileSync(join(ROOT, "package.json"), "utf8")).version ?? "?";
+	} catch {
+		return "?";
+	}
+})();
+
+export interface BundledPackage {
+	dir: string;
+	name: string;
+	version: string;
+	loaded: boolean;
+	commands: string[];
+}
+
+/** One line of pi.getCommands(): enough to tell which file registered it. */
+type CommandSource = { name: string; sourceInfo?: { path?: string } };
+
+/**
+ * The git subtrees under packages/, with whether they loaded this session:
+ * a package counts as loaded when one of its files registered a slash command
+ * (all five register at least one). approval-guardian is the exception: it
+ * loads through its opt-in wrapper, so its commands come from that file.
+ */
+export function bundledPackages(commands: CommandSource[], packagesDir = PACKAGES_DIR): BundledPackage[] {
+	let dirs: string[] = [];
+	try {
+		dirs = readdirSync(packagesDir, { withFileTypes: true })
+			.filter((d) => d.isDirectory())
+			.map((d) => d.name)
+			.sort();
+	} catch {
+		return [];
+	}
+	return dirs.map((dir) => {
+		let manifest: { name?: string; version?: string } = {};
+		try {
+			manifest = JSON.parse(readFileSync(join(packagesDir, dir, "package.json"), "utf8"));
+		} catch {
+			// no manifest: the folder name stands in
+		}
+		const markers = [`/packages/${dir}/`, `/extensions/opt-in/${dir}.ts`, `/extensions/opt-in/${dir}/`];
+		const mine = commands
+			.filter((c) => markers.some((m) => (c.sourceInfo?.path ?? "").replaceAll("\\", "/").includes(m)))
+			.map((c) => `/${c.name}`);
+		return { dir, name: manifest.name ?? dir, version: manifest.version ?? "?", loaded: mine.length > 0, commands: mine };
+	});
+}
+
+/** The submenu behind the Bundled packages row: a read-only list, any key closes. */
+function packagesView(pkgs: BundledPackage[], theme: Theme, done: () => void): Component {
+	const width = Math.max(...pkgs.map((p) => p.dir.length), 8);
+	return {
+		render: (w: number) =>
+			[
+				theme.fg("accent", "Bundled packages (git subtrees under packages/)"),
+				"",
+				...pkgs.map((p) => {
+					const dot = p.loaded ? theme.fg("success", "●") : theme.fg("dim", "○");
+					const note = p.loaded ? theme.fg("muted", p.commands.join(" ")) : theme.fg("dim", "not loaded");
+					return `  ${dot} ${p.dir.padEnd(width)}  ${theme.fg("muted", `${p.name}@${p.version}`.padEnd(28))} ${note}`;
+				}),
+				"",
+				theme.fg("dim", "Upstreams and licenses: NOTICE · any key to go back"),
+			].map((l) => truncateToWidth(l, w, "…")),
+		invalidate: () => {},
+		handleInput: () => done(),
+	};
+}
+
 type MenuResult = { toggles: Map<string, boolean>; action?: "defaults" | "config" };
 
 /** Rows for the menu: opt-ins first, then the two actions. Exported for tests. */
-export function menuItems(pendingKeybindings: number): SettingItem[] {
+export function menuItems(pendingKeybindings: number, pkgs: BundledPackage[] = []): SettingItem[] {
 	const known = [...optIns().values()].sort((a, b) => a.name.localeCompare(b.name));
 	const width = Math.max("Default keybindings".length, ...known.map((x) => x.name.length));
+	const loaded = pkgs.filter((p) => p.loaded).length;
 	return [
 		...known.map((x) => ({
 			id: `opt:${x.name}`,
@@ -112,6 +193,12 @@ export function menuItems(pendingKeybindings: number): SettingItem[] {
 			label: "Default keybindings".padEnd(width),
 			description: "Show Boehsline's keybindings as a diff against yours, then merge after you confirm",
 			currentValue: pendingKeybindings ? `${pendingKeybindings} to add` : "applied",
+		},
+		{
+			id: "packages",
+			label: "Bundled packages".padEnd(width),
+			description: pkgs.map((p) => `${p.dir} ${p.version}`).join(" · "),
+			currentValue: `${loaded} of ${pkgs.length} loaded`,
 		},
 		{
 			id: "config",
@@ -130,10 +217,13 @@ function pendingKeybindings(): number {
 	}
 }
 
-async function menu(ctx: ExtensionCommandContext): Promise<void> {
+async function menu(pi: ExtensionAPI, ctx: ExtensionCommandContext): Promise<void> {
+	const pkgs = bundledPackages(pi.getCommands());
 	const result = await ctx.ui.custom<MenuResult>((tui, theme, _keybindings, done) => {
 		const toggles = new Map<string, boolean>();
-		const items = menuItems(pendingKeybindings());
+		const items = menuItems(pendingKeybindings(), pkgs);
+		const packagesRow = items.find((i) => i.id === "packages");
+		if (packagesRow) packagesRow.submenu = (_value, close) => packagesView(pkgs, theme, () => close());
 		const listTheme: SettingsListTheme = {
 			label: (text, selected) => (selected ? theme.fg("accent", text) : text),
 			value: (text, selected) =>
@@ -159,7 +249,7 @@ async function menu(ctx: ExtensionCommandContext): Promise<void> {
 		];
 		const footer = (): string[] => {
 			const src = [...sources().keys()];
-			const lines = ["", theme.fg("dim", `Config: ${userConfigPath()} · Sources: ${src.length ? src.join(", ") : "none"}`)];
+			const lines = ["", theme.fg("dim", `Boehsline ${VERSION} · Config: ${userConfigPath()} · Sources: ${src.length ? src.join(", ") : "none"}`)];
 			const { error } = readUserConfig();
 			if (error) lines.push(theme.fg("warning", `⚠ ${error}`));
 			const missing = loadConfig().enable.filter((n) => !optIns().has(n));
@@ -246,7 +336,7 @@ export default function boehsline(pi: ExtensionAPI): void {
 		},
 		handler: async (args, ctx) => {
 			const [sub, name] = (args ?? "").trim().split(/\s+/);
-			if (!sub) return ctx.hasUI ? menu(ctx) : ctx.ui.notify(statusText(), "info");
+			if (!sub) return ctx.hasUI ? menu(pi, ctx) : ctx.ui.notify(statusText(pi), "info");
 			if (sub === "config") return ctx.ui.notify(configText(), "info");
 			if (sub === "defaults") return applyDefaults(ctx, name === "--force");
 			if (sub === "enable" || sub === "disable") {
@@ -262,7 +352,7 @@ export default function boehsline(pi: ExtensionAPI): void {
 				await ctx.reload();
 				return;
 			}
-			ctx.ui.notify(`Unknown subcommand "${sub}".\n\n${statusText()}`, "warning");
+			ctx.ui.notify(`Unknown subcommand "${sub}".\n\n${statusText(pi)}`, "warning");
 		},
 	});
 }

@@ -20,3 +20,23 @@ test("menu: one on/off row per opt-in, sorted, then the two actions", () => {
 		optIns().delete("alpha");
 	}
 });
+
+test("bundled packages: loaded when one of their files registered a command", async () => {
+	const { bundledPackages } = await import("../extensions/boehsline.ts");
+	const root = new URL("..", import.meta.url).pathname;
+	const pkgs = bundledPackages([
+		{ name: "context", sourceInfo: { path: `${root}packages/context/index.ts` } },
+		{ name: "approval-guardian", sourceInfo: { path: `${root}extensions/opt-in/approval-guardian.ts` } },
+		{ name: "stash", sourceInfo: { path: `${root}extensions/stash.ts` } },
+	]);
+	assert.deepEqual(pkgs.map((p) => p.dir), ["agent-link", "approval-guardian", "context", "goal", "scheduler"]);
+	const by = Object.fromEntries(pkgs.map((p) => [p.dir, p]));
+	assert.deepEqual(by.context.commands, ["/context"]);
+	assert.equal(by["approval-guardian"].loaded, true, "through its opt-in wrapper");
+	assert.equal(by.goal.loaded, false);
+	assert.match(by.scheduler.version, /^\d+\.\d+\.\d+$/);
+	assert.equal(by.scheduler.name, "pi-scheduler");
+	const row = menuItems(0, pkgs).find((i) => i.id === "packages");
+	assert.equal(row.currentValue, "2 of 5 loaded");
+	assert.deepEqual(bundledPackages([], "/nonexistent"), []);
+});
