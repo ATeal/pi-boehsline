@@ -1,6 +1,6 @@
 {
   "name": "pi-boehsline",
-  "version": "0.0.0",
+  "version": "0.1.0",
   "private": true,
   "description": "Boehsline (\"bays-line\"): the baseline for pi. Extensions, skills, prompts, and opinionated defaults in one package.",
   "keywords": [
