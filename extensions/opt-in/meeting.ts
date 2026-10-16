@@ -63,7 +63,7 @@
  * transcript trails the room by a couple of utterances.
  *
  * Settings: Boehsline config blocks "meeting" and "work" (watch/settings.ts), e.g.
- *      "meeting": { "qmdCollections": ["notes", "team-docs"], "dailyDir": "~/Notes/daily" }
+ *      "meeting": { "qmdCollections": ["notes", "team-docs"], "dailyDir": "~/Notes/daily", "codeDir": "~/src" }
  *      "work":    { "providers": [...], "models": [...], "researchModel": "...", "ghHost": "github.acme.com" }
  *
  * Env (overrides settings):
@@ -71,7 +71,7 @@
  *      PI_MEETING_RESEARCH_MODEL=provider/<id> (else the session model, if it's a work model)
  *      PI_MEETING_ME="First Last"  PI_MEETING_DIR  PI_MEETING_ABOUT=<file>
  *      PI_MEETING_QMD_COLLECTIONS=notes,team-docs ("" disables)
- *      PI_MEETING_DAILY_DIR=~/Notes/daily ("" disables the daily-note recap)
+ *      PI_MEETING_DAILY_DIR=~/Notes/daily ("" disables the daily-note recap)  PI_MEETING_CODE_DIR=~/src
  */
 
 import { type ChildProcess, execFile, spawn } from "node:child_process";
@@ -96,12 +96,14 @@ const ABOUT_FILE = process.env.PI_MEETING_ABOUT || path.join(os.homedir(), ".pi/
 
 let DAILY_DIR = MEETING_DEFAULTS.dailyDir;
 let GH_HOST = WORK_DEFAULTS.ghHost;
+let CODE_DIR = MEETING_DEFAULTS.codeDir;
 
 /** Refresh settings (and models.ts) from env + Boehsline config. */
 export function applyMeetingSettings(m: MeetingSettings = meetingSettings(), work: WorkSettings = workSettings()): void {
 	QMD_COLLECTIONS = m.qmdCollections;
 	DAILY_DIR = m.dailyDir;
 	GH_HOST = work.ghHost;
+	CODE_DIR = m.codeDir;
 	applyWorkSettings(work);
 }
 /** Research subagents: the session model unless overridden, read-only tools, a hard time cap. */
@@ -180,7 +182,7 @@ export const clock = (ts: string) => /T(\d\d:\d\d:\d\d)/.exec(ts)?.[1] ?? "";
 export const formatLine = (l: { ts: string; speaker: string; text: string; chat: boolean }) =>
 	`[${clock(l.ts)}] ${l.chat ? "(chat) " : ""}${l.speaker}: ${l.text}`;
 
-/** Lowercase name parts of 3+ letters: "Boehs, Eric (ORG)" and "Eric Boehs" both → eric, boehs. */
+/** Lowercase name parts of 3+ letters: "Rivera, Sam (ORG)" and "Sam Rivera" both → sam, rivera. */
 export function nameTokens(name: string): string[] {
 	const parts = name
 		.replace(/\(.*?\)/g, " ")
@@ -632,7 +634,7 @@ export function buildDigPrompt(d: DigInput): { system: string; task: string } {
 		`- ${who}'s notes, past agent sessions and work docs: \`qmd search "<keywords>" -n 8\` (fast keyword search over every collection), then \`qmd get <file>\` to read a hit`,
 		'- Slack: `slk search "<keywords>"`',
 		GH_HOST ? `- GitHub: \`GH_HOST=${GH_HOST} gh search issues|prs|code "<keywords>"\`, and plain \`gh\` for github.com` : '- GitHub: `gh search issues|prs|code "<keywords>"`',
-		"- Code under ~/Code: `rg`",
+		...(CODE_DIR ? [`- Code under ${CODE_DIR}: \`rg\``] : []),
 		"- Public docs: web_search, web_fetch",
 		"",
 		"The brief: plain text, under 150 words, no headings.",
@@ -1206,7 +1208,7 @@ function main(pi: ExtensionAPI) {
 		const saved = { ...m.trig };
 		m.trig = { unsent: 0, firstUnsentAt: 0, lastLineAt: m.trig.lastLineAt, lastCallAt: Date.now(), cue: null };
 		if (m.models.length === 0) {
-			// Rules only: no model reads the meeting, but a cue still reaches Eric.
+			// Rules only: no model reads the meeting, but a cue still reaches the user.
 			m.sentUpTo = upTo;
 			if (cue) raiseAlert(m, ruleAlert(cue, cueLine));
 			render(true);

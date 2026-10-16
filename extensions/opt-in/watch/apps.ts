@@ -4,12 +4,12 @@
  * folders with an index.ts.
  *
  * Every app not listed here is dropped inside notif-watch: its text never
- * reaches pi. Groups follow Eric's answers on the watch-all plan:
+ * reaches pi. Groups follow the user's answers on the watch-all plan:
  *
  *   slack  Slack, Mac and iPhone        wake: an early slk read, no text kept
  *   mail   Mail, Fastmail               wake: an early mail read (counted until watch/mail.ts)
  *   work   Outlook, Teams               the work scout (work.models), rules if it fails
- *   calls  Phone, FaceTime              rules: a missed call needs Eric
+ *   calls  Phone, FaceTime              rules: a missed call needs the user
  *          Calendar, Fantastical        the work scout: work meetings live there
  *   msgs   Messages, Signal             the personal scout, OTP codes masked first
  *

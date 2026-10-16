@@ -62,7 +62,7 @@ export function workCalendarIds(raw: string, sources: readonly string[] = PREP_S
 
 const declined = (a: IcalAttendee) => a.status === DECLINED || String(a.status).toLowerCase() === "declined";
 
-/** Meetings worth a brief; `isMe` spots Eric in the attendee list (name or email). */
+/** Meetings worth a brief; `isMe` spots the user in the attendee list (name or email). */
 export function parseAgenda(raw: string, workIds: ReadonlySet<string>, isMe: (nameOrEmail: string) => boolean, skip = skipPattern(PREP_SKIP_WORDS)): Meeting[] {
 	return parseList<IcalEvent>(raw)
 		.filter((e) => e && typeof e.id === "string" && typeof e.start_date === "string" && typeof e.title === "string")

@@ -6,12 +6,12 @@
  * Levels, quiet to loud:
  *   widget   a row above the editor (every "needs you" item)
  *   nudge    a toast: urgent words, 3 pings in 30 min, a VIP, a missed call
- *   offer    a widget line; nothing runs until Eric types /watch do N
- *   held     an act that waits on a gate (a meeting, Eric typing, the gap)
+ *   offer    a widget line; nothing runs until the user types /watch do N
+ *   held     an act that waits on a gate (a meeting, the user typing, the gap)
  *   act      the watcher starts a turn by itself: prep, away or urgent only
  *
  * The scout can only propose an offer. Rules make nudges and act cases, and
- * code gates every act: no meeting, work hours, Eric idle, the budget, and the
+ * code gates every act: no meeting, work hours, the user idle, the budget, and the
  * route (a work item acts only in a session on a work model).
  */
 
@@ -78,7 +78,7 @@ export type PolicyView = {
 	workHours: boolean;
 	idle: boolean; // ctx.isIdle()
 	pending: boolean; // ctx.hasPendingMessages()
-	editorText: boolean; // Eric has a half-typed prompt
+	editorText: boolean; // the user has a half-typed prompt
 	lastInputAt: number;
 	sessionWork: boolean; // the session model is a work model (watch/models.ts)
 	actsToday: number;
@@ -88,7 +88,7 @@ export type PolicyView = {
 	quiet: (who: string) => boolean;
 };
 
-/** Kinds aimed at Eric: Slack DMs and @-mentions, and text messages (Messages, Signal). */
+/** Kinds aimed at the user: Slack DMs and @-mentions, and text messages (Messages, Signal). */
 export const DIRECT = new Set(["dm", "group", "mention", "text"]);
 export const URGENT = /\b(urgent|asap|blocker|blocking|emergency)\b/i;
 /** Nudges that also make an urgent act candidate. */
@@ -99,7 +99,7 @@ export const OFFER_TTL_MS = 4 * 3600_000;
 /** A prep candidate this long before the meeting starts. */
 export const PREP_LEAD_MS = 10 * 60_000;
 export const AWAY_SEC = 20 * 60;
-/** Eric typed this recently: hold every act but away. */
+/** The user typed this recently: hold every act but away. */
 export const TYPED_MS = 2 * 60_000;
 export const IGNORED_MAX = 3;
 export const QUIET_DAYS = 7;
@@ -244,9 +244,9 @@ export function parseHidIdle(out: string): number | null {
 }
 
 /**
- * Seconds Eric has been away: the smaller of the Mac's HID idle time and the
- * time since his last pi input. Over SSH (or from another Mac) typing in pi
- * never touches this Mac's HID clock, so HID alone says "away" while he types.
+ * Seconds the user has been away: the smaller of the Mac's HID idle time and the
+ * time since their last pi input. Over SSH (or from another Mac) typing in pi
+ * never touches this Mac's HID clock, so HID alone says "away" while they type.
  * An unreadable HID clock counts as 0: never away on a guess.
  */
 export function awayIdleSec(hidSec: number | null, lastInputAt: number, now: number): number {

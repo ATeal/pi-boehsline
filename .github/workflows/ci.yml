@@ -33,6 +33,17 @@ jobs:
           node-version: '24'
       - run: scripts/typecheck.sh
 
+  notif-watch:
+    # The Swift notification reader; its tests skip on Linux.
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+      - run: scripts/build-notif-watch.sh
+      - run: node --test test/notif-watch.test.mjs
+
   gitleaks:
     runs-on: ubuntu-latest
     steps:

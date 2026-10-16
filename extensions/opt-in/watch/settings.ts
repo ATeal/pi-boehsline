@@ -68,11 +68,15 @@ export interface WatchSettings extends ConfigObject {
 	personalModels: string[];
 	/** Daily notes folder for the recap; "" disables it. Falls back to meeting.dailyDir. */
 	dailyDir: string;
+	/** notif-watch binary; "" uses the one Boehsline builds (bin/notif-watch), else PATH. */
+	notifBin: string;
 }
 
 export interface MeetingSettings extends ConfigObject {
 	qmdCollections: string[];
 	dailyDir: string;
+	/** Where your code lives, for /q research ("Code under <dir>: rg"); "" leaves the hint out. */
+	codeDir: string;
 }
 
 export const WORK_DEFAULTS: WorkSettings = {
@@ -94,9 +98,10 @@ export const WATCH_DEFAULTS: WatchSettings = {
 	snowUrl: "",
 	personalModels: ["opencode-go/deepseek-v4.1-flash", "opencode-go/glm-5.3-flash"],
 	dailyDir: "",
+	notifBin: "",
 };
 
-export const MEETING_DEFAULTS: MeetingSettings = { qmdCollections: [], dailyDir: "" };
+export const MEETING_DEFAULTS: MeetingSettings = { qmdCollections: [], dailyDir: "", codeDir: "" };
 
 const list = (raw: string) =>
 	raw
@@ -119,6 +124,7 @@ export function meetingSettings(env: NodeJS.ProcessEnv = process.env): MeetingSe
 		...s,
 		qmdCollections: env.PI_MEETING_QMD_COLLECTIONS !== undefined ? list(env.PI_MEETING_QMD_COLLECTIONS) : s.qmdCollections,
 		dailyDir: expandHome(env.PI_MEETING_DAILY_DIR ?? s.dailyDir),
+		codeDir: env.PI_MEETING_CODE_DIR ?? s.codeDir,
 	};
 }
 
@@ -133,6 +139,7 @@ export function watchSettings(env: NodeJS.ProcessEnv = process.env): WatchSettin
 		prepSources: env.PI_WATCH_PREP_SOURCES ? list(env.PI_WATCH_PREP_SOURCES) : s.prepSources,
 		snowUrl: env.PI_WATCH_SNOW_URL ?? s.snowUrl,
 		dailyDir: expandHome(env.PI_WATCH_DAILY_DIR ?? (s.dailyDir || meeting.dailyDir)),
+		notifBin: expandHome(s.notifBin),
 	};
 }
 

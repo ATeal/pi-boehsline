@@ -61,3 +61,25 @@ test("dailyDir: watch falls back to meeting's; ~ expands", () => {
 test("a bad redaction pattern is skipped, not fatal", () => {
 	assert.equal(compileRedactions([{ pattern: "(", flags: "", replace: "x" }, { pattern: "a", flags: "i", replace: "b" }]).length, 1);
 });
+
+test("notif-watch: work.redact becomes --mask rules; a replacement with = is skipped", () => {
+	assert.deepEqual(
+		watch.notifMasks([
+			{ pattern: "\\bEMP\\d{6}\\b", flags: "g", replace: "[EMP]" },
+			{ pattern: "acct-\\d+", flags: "gi", replace: "[ACCT]" },
+			{ pattern: "x", flags: "", replace: "a=b" },
+		]),
+		["[EMP]=\\bEMP\\d{6}\\b", "[ACCT]=(?i)acct-\\d+"],
+	);
+});
+
+test("notif-watch binary: env, then watch.notifBin, then Boehsline's build, then PATH", () => {
+	assert.equal(watch.notifBin({ PI_WATCH_NOTIF_BIN: "/x/nw" }), "/x/nw");
+	registerSource("me", { watch: { notifBin: "~/bin/nw" } });
+	watch.applySettings();
+	assert.match(watch.notifBin({}), /\/bin\/nw$/);
+	assert.ok(!watch.notifBin({}).startsWith("~"));
+	sources().clear();
+	watch.applySettings();
+	assert.match(watch.notifBin({}), /(\/bin\/notif-watch|^notif-watch)$/);
+});

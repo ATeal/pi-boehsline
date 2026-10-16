@@ -18,7 +18,8 @@
   },
   "scripts": {
     "test": "node --test test/*.test.mjs",
-    "typecheck": "scripts/typecheck.sh"
+    "typecheck": "scripts/typecheck.sh",
+    "build:notif-watch": "scripts/build-notif-watch.sh"
   },
   "peerDependencies": {
     "@earendil-works/pi-coding-agent": "*",

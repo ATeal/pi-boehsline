@@ -5,8 +5,8 @@
  *
  * A watch turn can use ACT_TOOLS only. The prompt says so, and a tool_call
  * handler blocks everything else from the moment the turn is armed until pi
- * settles after it, whatever the item text says. A steer Eric types during the
- * turn is guarded too; his next prompt gets every tool back. Blocking in
+ * settles after it, whatever the item text says. A steer the user types during the
+ * turn is guarded too; their next prompt gets every tool back. Blocking in
  * tool_call, not setActiveTools, keeps the declared tools (and the prompt
  * cache) the same.
  */
@@ -41,7 +41,7 @@ export const itemText = (i: PItem) => untrusted({ from: i.from, where: i.where, 
 
 export type ActInfo = {
 	me: string;
-	act?: { n: number; perDay: number }; // self-started; unset when Eric typed /watch do
+	act?: { n: number; perDay: number }; // self-started; unset when the user typed /watch do
 	waits?: string[]; // open waits with these people, one line each
 };
 
@@ -73,7 +73,7 @@ export type Guard = {
 	armed: () => string;
 	/** The workspace watch_lookup may search: a string, null (notes only), or undefined outside a watch turn. */
 	workspace: () => string | null | undefined;
-	/** Pi is idle and the armed turn never started: Eric's prompt gets its tools back. */
+	/** Pi is idle and the armed turn never started: The user's prompt gets its tools back. */
 	settleIfIdle: (idle: boolean) => void;
 };
 

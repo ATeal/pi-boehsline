@@ -21,7 +21,7 @@
  *   /watch  (ctrl+shift+w, or click the widget)   the picker: open, ask agent, done, snooze, mute, wait, undo;
  *                                Tab to the waits: c close, x drop, r reopen
  *                                (watch/actions.ts); watch_items does the same from chat,
- *                                only in a turn Eric typed, a mute only after a confirm
+ *                                only in a turn the user typed, a mute only after a confirm
  *
  * /watch-slack is an alias, from before notifications.
  *
@@ -30,12 +30,12 @@
  *
  *   slk unread --json -w WS            unread DMs and channels (the "read yet?" signal)
  *   slk activity --json -w WS          unread mentions and thread replies
- *   slk sent --mine --json -w WS       Eric's own posts today (waits, and "Eric answered")
+ *   slk sent --mine --json -w WS       the user's own posts today (waits, and "the user answered")
  *   slk messages ID|URL --json         text for unread DMs, mentions, threads and open waits
  *
  * The bot feed (watch.feed: a CLI, workspace and channel) gets one read per minute at most:
  * the channel on the poll cadence, then each watched thread with new replies.
- * Watched threads: any post addressed to Eric, and any post by Eric's agent.
+ * Watched threads: any post addressed to the user, and any post by the user's agent.
  *
  * A small model (watch/models.ts PERSONAL_MODELS) sorts each new message into
  * needs / context / drop and writes an 8-word "why"; code decides the rest.
@@ -57,11 +57,11 @@
  *
  * Proactive help (watch/policy.ts, watch/act.ts, watch/prep.ts): the scout may
  * propose an offer on a needs item ("draft" or "look"), shown in the widget
- * until Eric types /watch do N. Rules make nudges (a toast): urgent words, 3
+ * until the user types /watch do N. Rules make nudges (a toast): urgent words, 3
  * pings in 30 minutes, a VIP, a missed call. The watcher starts a turn by
  * itself in three cases only: a prep brief 10 minutes before a work meeting
  * (from ical), drafts after 20 minutes away from the Mac, and urgent pings.
- * Code gates each one: no meeting, work hours, Eric idle and not typing, the
+ * Code gates each one: no meeting, work hours, the user idle and not typing, the
  * budget (PI_WATCH_ACTS), and the route (a work item acts only in a session on a
  * work model). A watch turn can use read, watch_lookup and web_search only; a
  * tool_call guard blocks the rest until pi settles. Three offers from one
@@ -69,7 +69,7 @@
  *
  * Output:
  *   widget above the editor   the top 3 "needs you" items. An item clears when slk
- *                             stops listing it unread, or Eric posts there later
+ *                             stops listing it unread, or the user posts there later
  *   digest                    every 15 min, only with new items, as a `watch`
  *                             message with triggerTurn:false. Held while meeting.ts
  *                             reports a meeting ("meeting:state"), flushed after
@@ -96,7 +96,7 @@
  *      PI_WATCH_DAILY_DIR (falls back to meeting's; "" or unset disables the note)
  *      PI_WATCH_HOURS=7-18 (work hours; slower polls outside them and on weekends)
  *      PI_WATCH_APPS=slack,mail,work,calls,msgs ("" or "off": no notifications)
- *      PI_WATCH_NOTIF_BIN=notif-watch
+ *      PI_WATCH_NOTIF_BIN=path (default: Boehsline builds bin/notif-watch on /watch start; else notif-watch on PATH)
  *      PI_WATCH_ACTS=12/15 (self-started turns each day / minutes between)  PI_WATCH_ACT_HOURS=8-17
  *      PI_WATCH_VIP="Sam Rivera"  PI_WATCH_AWAY_MIN=20  PI_WATCH_PREP=on|off
  *      PI_WATCH_PREP_SOURCES="Acme (Work)"  PI_WATCH_PREP_SKIP=standup,stand-up,lunch,focus,hold,ooo,out of office
@@ -107,6 +107,7 @@ import { randomUUID } from "node:crypto";
 import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
+import { fileURLToPath } from "node:url";
 import type { Api, AssistantMessage, Model, ThinkingLevel } from "@earendil-works/pi-ai";
 import { copyToClipboard, type ExtensionAPI, type ExtensionContext, type Theme } from "@earendil-works/pi-coding-agent";
 import { type AutocompleteItem, Text, truncateToWidth } from "@earendil-works/pi-tui";
@@ -212,6 +213,9 @@ let DAILY_DIR = WATCH_DEFAULTS.dailyDir;
 /** What the scout prompt names as data never to repeat. */
 let SENSITIVE = WORK_DEFAULTS.sensitive;
 let REDACTIONS: { re: RegExp; replace: string }[] = [];
+/** notif-watch --mask rules: the same redactions, applied before any notification text leaves it. */
+let NOTIF_MASKS: string[] = [];
+let NOTIF_BIN_SETTING = WATCH_DEFAULTS.notifBin;
 
 /** Refresh every setting above (and models.ts) from env + Boehsline config. */
 export function applySettings(w: WatchSettings = watchSettings(), work: WorkSettings = workSettings()): void {
@@ -227,9 +231,45 @@ export function applySettings(w: WatchSettings = watchSettings(), work: WorkSett
 	DAILY_DIR = w.dailyDir;
 	SENSITIVE = work.sensitive;
 	REDACTIONS = compileRedactions(work.redact);
+	NOTIF_MASKS = notifMasks(work.redact);
+	NOTIF_BIN_SETTING = w.notifBin;
 	applyWorkSettings(work, w.personalModels);
 }
 const feedOn = () => !!(FEED_CLI && FEED_CHANNEL && FEED_WS);
+
+/** work.redact as notif-watch `--mask REPLACEMENT=REGEX` values; a replacement with "=" can't be passed and is skipped. */
+export function notifMasks(rules: readonly { pattern: string; flags: string; replace: string }[]): string[] {
+	return rules
+		.filter((r) => typeof r.pattern === "string" && r.pattern && typeof r.replace === "string" && !r.replace.includes("="))
+		.map((r) => `${r.replace}=${typeof r.flags === "string" && r.flags.includes("i") ? "(?i)" : ""}${r.pattern}`);
+}
+
+/** Which notif-watch to run: PI_WATCH_NOTIF_BIN, watch.notifBin, the one Boehsline built, else PATH. */
+export function notifBin(env: NodeJS.ProcessEnv = process.env): string {
+	if (env.PI_WATCH_NOTIF_BIN) return env.PI_WATCH_NOTIF_BIN;
+	if (NOTIF_BIN_SETTING) return NOTIF_BIN_SETTING;
+	return fs.existsSync(BUNDLED_NOTIF_BIN) ? BUNDLED_NOTIF_BIN : "notif-watch";
+}
+
+/**
+ * Build (or rebuild) Boehsline's notif-watch when it's missing or older than its
+ * source. Only when nobody chose a binary, and only on macOS with swiftc (the
+ * script exits 2 otherwise, and notifBin() falls back to PATH). Fast when current.
+ */
+export function ensureNotifBin(onBuild: () => void, env: NodeJS.ProcessEnv = process.env): Promise<{ ok: boolean; err: string }> {
+	if (env.PI_WATCH_NOTIF_BIN || NOTIF_BIN_SETTING || process.platform !== "darwin" || !fs.existsSync(NOTIF_BUILD)) {
+		return Promise.resolve({ ok: true, err: "" });
+	}
+	return new Promise((resolve) => {
+		const child = execFile(NOTIF_BUILD, [], { timeout: 180_000 }, (err, stdout, stderr) => {
+			const code = (err as (Error & { code?: number }) | null)?.code;
+			if (!err || code === 2) return resolve({ ok: true, err: "" }); // built, current, or can't build here
+			resolve({ ok: false, err: String(stderr || stdout || err.message).trim().split("\n").at(-1) ?? "" });
+		});
+		if (!fs.existsSync(BUNDLED_NOTIF_BIN)) onBuild();
+		child.unref?.();
+	});
+}
 /** The newest open waits a scout call sees; older ones still close by rule. */
 export const WAITS_SHOWN = 40;
 const DATA_DIR = process.env.PI_WATCH_DIR || path.join(os.homedir(), ".local/share/watch");
@@ -268,7 +308,9 @@ const MSG_TYPE = "watch";
 const OLD_MSG_TYPE = "watch-slack";
 const WIDGET_KEY = "watch";
 const APPS_SPEC = process.env.PI_WATCH_APPS ?? DEFAULT_APPS;
-const NOTIF_BIN = process.env.PI_WATCH_NOTIF_BIN || "notif-watch";
+/** Boehsline builds notif-watch here (scripts/build-notif-watch.sh); see notifBin(). */
+const BUNDLED_NOTIF_BIN = fileURLToPath(new URL("../../bin/notif-watch", import.meta.url));
+const NOTIF_BUILD = fileURLToPath(new URL("../../scripts/build-notif-watch.sh", import.meta.url));
 /** Banners wake a Slack read no more than once a minute; the loop's own cadence still runs. */
 export const WAKE_GAP_MS = 60_000;
 /** Notifications held in memory (on screen now, allowed apps only), newest kept. */
@@ -354,7 +396,7 @@ export function parseClock(s: string, now = new Date()): Date | null {
 	return d;
 }
 
-/** Poll cadence: 3 min while Eric is around in work hours, slower when idle, after hours and on weekends. */
+/** Poll cadence: 3 min while the user is around in work hours, slower when idle, after hours and on weekends. */
 export function pollInterval(now: Date, lastActiveMs: number, cfg = POLL): { ms: number; mode: "active" | "idle" | "after hours" } {
 	const day = now.getDay();
 	const h = now.getHours();
@@ -511,7 +553,7 @@ export function parseMessages(raw: string): SlackMsg[] | null {
 
 export type MyPost = { workspace: string; channel: string; ts: string; threadTs?: string; text: string; where: string; channelName?: string };
 
-/** `slk sent --mine --json`: Eric's posts, and his user id in that workspace. */
+/** `slk sent --mine --json`: the user's posts, and their user id in that workspace. */
 export function parseSent(raw: string, ws: string): { myId?: string; posts: MyPost[] } | null {
 	let obj: Record<string, unknown>;
 	try {
@@ -563,14 +605,14 @@ export function parseFeed(raw: string): FeedPost[] | null {
 
 export const stripTag = (name: string) => name.replace(/\[[^\]]*\]/g, " ").replace(/\s+/g, " ").trim();
 
-/** A bot-feed name is Eric's with or without a session tag: "Eric Boehs [earl]". */
+/** A bot-feed name is the user's with or without a session tag: "Sam Rivera [laptop]". */
 export const isMine = (name: string, me: string[]) => isMe(stripTag(name), me);
 
 /**
- * Whether a bot-feed post is addressed to Eric (the bot feed's addressing convention):
- * "*Ask for Eric Boehs:*", "*Update for all:*", the older "→ Eric Boehs:", or
- * an @-mention. `ask` is the part that needs him: Ask, Handoff or Blocked for
- * him or all, the older arrow form, or an @-mention.
+ * Whether a bot-feed post is addressed to the user (the bot feed's addressing convention):
+ * "*Ask for Sam Rivera:*", "*Update for all:*", the older "→ Sam Rivera:", or
+ * an @-mention. `ask` is the part that needs them: Ask, Handoff or Blocked for
+ * them or all, the older arrow form, or an @-mention.
  */
 export function feedAddress(text: string, me: string[]): { addressed: boolean; ask: boolean } {
 	const t = text.replace(/\s+/g, " ").trim();
@@ -630,7 +672,7 @@ export interface LedgerEntry {
 	ts: string;
 	kind: Kind;
 	due?: string;
-	maybeWait?: string; // the scout thinks this answers a wait; Eric confirms
+	maybeWait?: string; // the scout thinks this answers a wait; the user confirms
 	clearedAt?: string;
 	clearedBy?: "read" | "answered" | "you" | "muted" | "wait"; // muted: a mute rule; wait: became a W
 	snoozeUntil?: string; // local ISO: hidden from the widget and the acts until then
@@ -639,7 +681,7 @@ export interface LedgerEntry {
 	readKeys: string[]; // unread markers that keep it open (see unreadKeys())
 	wasUnread: boolean;
 	forced?: boolean; // needs by rule, whatever the scout says
-	offer?: OfferKind; // the scout thinks Eric's agent can help: /watch do N
+	offer?: OfferKind; // the scout thinks the user's agent can help: /watch do N
 	offerWhy?: string; // what the agent would do, 8 words
 	nudge?: string; // the rule that toasted it (policy.ts nudgeOf)
 	parent?: string; // thread parent text: for the scout only, never written
@@ -658,7 +700,7 @@ export interface WaitItem {
 	closedBy?: string; // ledger key of the reply
 	closedAt?: string;
 	closedVia?: string; // "13:04 acme DM"
-	maybeBy?: string; // ledger key of a fuzzy match, until Eric confirms
+	maybeBy?: string; // ledger key of a fuzzy match, until the user confirms
 	sig: string; // identity across note re-reads
 	sentToAgent?: boolean;
 }
@@ -689,8 +731,8 @@ export function sameConversation(where: NonNullable<WaitItem["where"]>, m: { wor
 
 /**
  * An exact match: a message in the DM or thread where the ask went, after the
- * ask, from the person asked (in a 1:1 DM anyone but Eric is that person).
- * Fuzzy matches come from the scout and stay "maybe" until Eric confirms.
+ * ask, from the person asked (in a 1:1 DM anyone but the user is that person).
+ * Fuzzy matches come from the scout and stay "maybe" until the user confirms.
  */
 export function matchWait(
 	m: { workspace: string; channel: string; threadTs?: string; ts: string; from: string },
@@ -706,7 +748,7 @@ export function matchWait(
 	);
 }
 
-/** Eric posted in the same conversation after the item: a later DM, or a reply in its thread. */
+/** The user posted in the same conversation after the item: a later DM, or a reply in its thread. */
 export function answeredBy(item: Pick<Item, "workspace" | "channel" | "ts" | "threadTs" | "kind">, mine: MyPost[]): MyPost | undefined {
 	return mine.find((p) => {
 		if (p.workspace !== item.workspace || p.channel !== item.channel || !tsAfter(p.ts, item.ts)) return false;
@@ -718,7 +760,7 @@ export function answeredBy(item: Pick<Item, "workspace" | "channel" | "ts" | "th
 
 /**
  * The clearing rule, pure: an open item clears once slk stops listing it as
- * unread (having listed it at least once), or once Eric posted there later.
+ * unread (having listed it at least once), or once the user posted there later.
  * Workspaces whose reads failed this poll (not in `loaded`) aren't judged on read state.
  */
 export function applyClearing(items: Iterable<Item>, unread: Set<string>, loaded: Set<string>, mine: MyPost[], now = localIso()): Item[] {
@@ -756,7 +798,7 @@ export function needsList(items: Iterable<Item>, now = Date.now()): Item[] {
 	return [...items].filter((i) => i.bucket === "needs" && i.state === "open" && !isSnoozed(i, now)).sort((a, b) => rank(a) - rank(b) || byTs(b.ts, a.ts));
 }
 
-/** Before (or without) the scout. A text, a work notification and a missed call need Eric until the scout says otherwise. */
+/** Before (or without) the scout. A text, a work notification and a missed call need the user until the scout says otherwise. */
 export const defaultBucket = (k: Kind): Bucket =>
 	k === "dm" || k === "group" || k === "mention" || k === "feed-ask" || k === "text" || k === "work" || k === "call" ? "needs" : "context";
 
@@ -912,7 +954,7 @@ export function fitTriage(
 	return { user, ids, pids };
 }
 
-/** Slack messages to Eric, by sender: how many came in and how many he answered. Counts only, no text. */
+/** Slack messages to the user, by sender: how many came in and how many they answered. Counts only, no text. */
 export type SenderStats = Record<string, { n: number; answered: number }>;
 const STAT_KINDS = new Set<Kind>(["dm", "group", "mention"]);
 export const RECENT_DAYS = 7;
@@ -1395,7 +1437,7 @@ type Watch = {
 	feedLastAt: number;
 	feedChannelAt: number;
 	mine: MyPost[]; // slk sent, latest poll
-	feedMine: MyPost[]; // Eric's agent in the bot feed
+	feedMine: MyPost[]; // the user's agent in the bot feed
 	mineSeen: Set<string>;
 	myIds: Record<string, string>;
 	names: Record<string, Record<string, string>>; // per workspace: user id → name
@@ -1575,7 +1617,7 @@ function main(pi: ExtensionAPI) {
 		if (ctxRef?.hasUI) ctxRef.ui.notify(msg, level);
 	};
 
-	/** The running turn came from Eric's typing: watch_items works only then. */
+	/** The running turn came from the user's typing: watch_items works only then. */
 	let userTurn = false;
 	pi.on("session_start", (_e, ctx) => {
 		ctxRef = ctx;
@@ -1691,6 +1733,11 @@ function main(pi: ExtensionAPI) {
 	async function start(ctx: ExtensionContext, force: boolean) {
 		if (s) return notify("The watcher is already running. /watch stop first.", "warning");
 		applySettings(); // pick up config edits since session_start
+		if (pickGroups(APPS_SPEC).groups.length) {
+			const built = await ensureNotifBin(() => notify("watch · building notif-watch (once, ~10s)…"));
+			if (!built.ok) notify(`watch · couldn't build notif-watch: ${built.err}`, "warning");
+			if (s) return; // another start won the race while it built
+		}
 		const holder = lockHolder();
 		if (holder && !force) return notify(`Another pi session (pid ${holder}) is watching. /watch start --force takes over.`, "warning");
 		const registry = ctx.modelRegistry;
@@ -1842,11 +1889,11 @@ function main(pi: ExtensionAPI) {
 		w.groups = groups;
 		if (!groups.length) return "off";
 		w.notif = superviseNotifWatch({
-			bin: NOTIF_BIN,
+			bin: notifBin(),
 			allow: allowList(groups),
 			// Each (re)start replays what's still on screen, so items left from
 			// before clear only when their notification is really gone.
-			extraArgs: ["--since", NOTIF_SINCE],
+			extraArgs: ["--since", NOTIF_SINCE, ...NOTIF_MASKS.flatMap((m) => ["--mask", m])],
 			onEvent: (e) => onNotif(w, e),
 			onStatus: (st) => {
 				if (s !== w) return;
@@ -1919,7 +1966,7 @@ function main(pi: ExtensionAPI) {
 			...(route ? { route } : {}),
 		};
 		if (!route) {
-			// A missed call is code's call: needs Eric, no model. A fresh one also toasts.
+			// A missed call is code's call: needs the user, no model. A fresh one also toasts.
 			item.why = "missed call";
 			if (toast && w.started && Date.now() - Number(item.ts) * 1000 < 10 * 60_000) {
 				item.nudge = "missed call";
@@ -2317,7 +2364,7 @@ function main(pi: ExtensionAPI) {
 		};
 		const readConv = (channel: string) => read(["messages", channel, "--json", "-n", "10", "-w", ws], "messages");
 
-		// 1. Unread DMs and group DMs: what came in after Eric's last word there.
+		// 1. Unread DMs and group DMs: what came in after the user's last word there.
 		const dms = [...(u?.dms ?? []).map((d) => ({ ...d, group: false })), ...(u?.groups ?? []).map((d) => ({ ...d, group: true }))];
 		for (const d of dms.slice(0, MAX_DM_READS)) {
 			const msgs = await readConv(d.id);
@@ -2403,7 +2450,7 @@ function main(pi: ExtensionAPI) {
 			}
 		}
 
-		// 3. Conversations an open wait points at: read them even if Eric already has.
+		// 3. Conversations an open wait points at: read them even if the user already has.
 		const pinned = w.waits.filter((x) => x.state === "open" && x.where?.workspace === ws && x.where.channel !== FEED_CHANNEL).slice(-MAX_WAIT_READS);
 		for (const x of pinned) {
 			const wh = x.where!;
@@ -2431,7 +2478,7 @@ function main(pi: ExtensionAPI) {
 				);
 			}
 		}
-		// Eric's posts: names for ids in "DM with U0…" and in mentions, before the scout sees them.
+		// The user's posts: names for ids in "DM with U0…" and in mentions, before the scout sees them.
 		const mine = (sent?.posts ?? []).map((p) => ({ ...p, where: resolveIds(p.where, names), text: plainText(p.text, names) }));
 		return { ws, ok: !!u && !!acts, sentOk: !!sent, keys, mine, cands, errors };
 	}
@@ -2457,7 +2504,7 @@ function main(pi: ExtensionAPI) {
 		w.started = true;
 	}
 
-	/** Eric's new posts go to the scout once, to spot asks worth waiting on. */
+	/** The user's new posts go to the scout once, to spot asks worth waiting on. */
 	function queueMine(w: Watch, posts: MyPost[]) {
 		const cut = tsOfDate(Math.max(dayStart(w.day), w.startedAt - FIRST_LOOKBACK_MS));
 		for (const p of posts) {
@@ -2666,7 +2713,7 @@ function main(pi: ExtensionAPI) {
 			if (!post) continue;
 			let who = resolveIds(g.who, w.names[post.workspace] ?? {});
 			let what = g.what;
-			// In a 1:1 DM, Eric is waiting on the person he asked: the other side of the DM.
+			// In a 1:1 DM, the user is waiting on the person they asked: the other side of the DM.
 			const dmWith = isDmChannel(post.channel) ? /DM with (.+)$/.exec(post.where)?.[1] : undefined;
 			if (dmWith && usableWho(dmWith) && !sameWho(who, dmWith)) {
 				if (usableWho(who)) what = `${what} (re ${who})`;
@@ -3166,7 +3213,7 @@ function main(pi: ExtensionAPI) {
 		},
 	});
 
-	// watch_items: the same verbs from chat, only in a turn Eric typed. Not in an
+	// watch_items: the same verbs from chat, only in a turn the user typed. Not in an
 	// act turn (ACT_TOOLS has no watch_items) or one an agent-link or bg message started.
 	pi.on("agent_end", () => {
 		userTurn = false;

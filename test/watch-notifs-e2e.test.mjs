@@ -138,7 +138,9 @@ test("notifications become items: routed by app, one per message, cleared when g
 	const notifItems = () => [...items().values()].filter((i) => i.key.startsWith("notif:"));
 
 	await until(() => fs.existsSync(path.join(dir, "args")));
-	assert.deepEqual(JSON.parse(fs.readFileSync(path.join(dir, "args"), "utf8")).slice(-2), ["--since", "24h"], "each start replays what's on screen");
+	const args = JSON.parse(fs.readFileSync(path.join(dir, "args"), "utf8"));
+	assert.deepEqual(args.slice(-4, -2), ["--since", "24h"], "each start replays what's on screen");
+	assert.deepEqual(args.slice(-2), ["--mask", "[EMP]=\\bEMP\\d{6}\\b"], "work.redact reaches notif-watch, so masked text never leaves it");
 
 	// The missed call is an item at once, by rule, with a toast.
 	await until(() => notifItems().some((i) => i.kind === "call"));

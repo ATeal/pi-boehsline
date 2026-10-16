@@ -4,12 +4,12 @@
  * extension: pi loads only top-level files and folders with an index.ts.
  *
  *   kind     msgs → "text" (personal scout), work → "work" (work scout),
- *            Phone/FaceTime → "call" (rules: a missed call needs Eric, no model),
+ *            Phone/FaceTime → "call" (rules: a missed call needs the user, no model),
  *            Calendar/Fantastical → "event" (work scout). Slack and mail
  *            banners make no item: they only bring a read forward.
  *   dedupe   one message on the Mac and the iPhone is one item: same app,
  *            sender and text, minutes apart. Its readKeys hold both ids.
- *   clear    an item clears when any of its notifications goes away: Eric
+ *   clear    an item clears when any of its notifications goes away: The user
  *            handled it on some device. After a notif-watch (re)start, the
  *            ones not replayed by --since are gone too, per source that read ok.
  */

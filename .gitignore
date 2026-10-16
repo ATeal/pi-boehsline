@@ -2,3 +2,5 @@ node_modules/
 *.tmp-*
 .DS_Store
 .typecheck/
+bin/notif-watch
+bin/.notif-watch.sha

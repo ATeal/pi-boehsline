@@ -869,7 +869,7 @@ const h = (tag, attrs = {}, ...kids) => {
   return el;
 };
 
-const tilde = (p) => String(p || "").replace(/^\/Users\/[^/]+/, "~").replace("~/Library/Mobile Documents/iCloud~md~obsidian/Documents/Vault", "~/Documents/Wiki");
+const tilde = (p) => String(p || "").replace(/^\/(?:Users|home)\/[^/]+/, "~");
 
 function ago(t) {
   const ms = Date.now() - (typeof t === "number" ? t : Date.parse(t));
