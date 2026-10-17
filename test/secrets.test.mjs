@@ -34,7 +34,9 @@ test("{name} fills a slot instead of appending; [] means env only", () => {
 
 test("a configured command runs; failures and timeouts are just no value", async () => {
 	const bin = fakeCli();
-	registerSource("t", { secrets: { command: [bin], timeoutMs: 300 } });
+	// The slow case sleeps 5s; 2s leaves a loaded machine room to spawn the fast
+	// ones (300ms failed under load), and still times the slow one out.
+	registerSource("t", { secrets: { command: [bin], timeoutMs: 2_000 } });
 	assert.equal(await readSecret("API_KEY"), "value-for-API_KEY");
 	assert.equal(await readSecret("NOPE_KEY"), undefined);
 	assert.equal(await readSecret("SLOW_KEY"), undefined);
