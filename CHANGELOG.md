@@ -2,21 +2,32 @@
 
 ## Unreleased
 
-- **CI checks the context budget.** `node scripts/bench.mjs --check docs/benchmarks.md` measures starting context offline (a stand-in model, nothing sent) and the `context-budget` job fails if it's more than 10% over the documented number. `scripts/bench.mjs` gains `--offline`, `--context-only`, `--check` and `PI_BIN`.
-- One `lib/tool-search.ts` helper for every extension with a deferred tool (agent-link and goal had their own copies), and `test/deferred-tools.test.mjs` checks every deferred tool in the manifest stays reachable with subagent turned off.
-- aa-info: reads every page of Artificial Analysis's free `language/models/free` endpoint and nothing else. The legacy `/api/v2/data/llms/models` it read quality, speed and rates from retires on 2026-11-04. The old code read only page 1 of the cost endpoint, so $/task now covers every model AA has priced, not just the first 200 rows. `$/1M` is computed as AA's 3:1 blend; Kimi models count as Moonshot for the peer line.
-- aa-info: a failed refresh backs off instead of retrying on every model switch. It's recorded in the cache as `retryAt`, so every pi sharing the cache holds off for an hour (or a 429's `Retry-After`, if longer), and briefings keep coming from the stale snapshot rather than going blank.
+## 0.2.2 — 2026-10-16
+
+### Added
+
+- **todo**, a new default extension: a shared task list for you and other pi agents at `.pi/TODO.md` (a plain markdown checklist), with locked claims so two agents never own the same task. `todo` tool for agents, `/todo` for you, and one static line above the editor while tasks are open. Nothing is written until a task is added. Moved from an untracked folder in dotfiles, where it only loaded for that one project.
+- footer: a Worktree chip after the directory, `⎇ eert` in a linked git worktree of `eert`, hidden in a main checkout. It reads the `.git` file and `commondir` (no git process), so submodules don't count and a bare repo's worktree names `repo` for `repo.git`. A chip added since `footer.json` was saved now lands after its default predecessor instead of last.
 - footer: `~` for the home directory, and an optional `dirNames` map in `footer.json` that renames the directory chip per folder (`""` hides it). Rows in `/footer` that configure a chip are indented under it, and the list shows up to 22 rows.
 - footer: a "Provider/Model/Thinking condition" under each of those chips; "unless default" hides the chip while it matches settings.json's `defaultProvider`, `defaultModel`, or the level the model starts on (its `modelThinkingLevels` entry, else `defaultThinkingLevel`).
-- agent-link removes its `~/.claude/sessions/<pid>.json` on a hard exit too, not only on `session_shutdown`. Print-mode runs that `process.exit` (such as `scripts/bench.mjs`) leaked one file each, and a later process reusing the pid showed it as its session name; the footer now also ignores a registry file older than its process.
 - footer: a `mini` mode for the Rate limits chip, just `↑` speed up or `↓` slow down from the worst window's pace on a green or yellow/orange/red ladder, hidden on pace. Clicking cycles compact → detailed → mini. A "Usage condition" row hides the chip by pace in any mode (`unless on pace`, `when > 10 ahead`, `when > 20 ahead`); a limit always shows. `/footer` supports several setting rows per chip.
-- footer: the git chip lost its dirty marker (and "unless clean default" stopped working) in repos where `git status` took over 1s, such as dotfiles with 4 submodules: the timeout blanked the state. A timeout or failed spawn now keeps the last state, the limit is 3s, and status runs with `--ignore-submodules=dirty` (1.6s → 0.5s in dotfiles).
 - footer: a "Usage pace" row under Rate limits. `on` adds each window's pace after its % (`↓8` ahead, `↑12` behind, nothing within ±5) in compact and detailed, and points to mini (`↓8`).
-- provider-usage: Copilot's per-workday allowance reads `4.3%/d`, without the `↓` that now means "slow down" in the footer.
 - footer: a "Rate condition" row under Token rate (`always`, `after 2s`, `5s`, `10s`, `30s`) shows the chip only for turns that run at least that long; a faster turn hides it.
-- footer: a Worktree chip after the directory, `⎇ eert` in a linked git worktree of `eert`, hidden in a main checkout. It reads the `.git` file and `commondir` (no git process), so submodules don't count and a bare repo's worktree names `repo` for `repo.git`. A chip added since `footer.json` was saved now lands after its default predecessor instead of last.
+- **CI checks the context budget.** `node scripts/bench.mjs --check docs/benchmarks.md` measures starting context offline (a stand-in model, nothing sent) and the `context-budget` job fails if it's more than 10% over the documented number. `scripts/bench.mjs` gains `--offline`, `--context-only`, `--check` and `PI_BIN`.
 - `npm test` saves each run's output to `/tmp/test-runs/` (`TEST_RUNS_DIR` overrides), headed with the commit, dirty files and load average, keeping the newest 50, so an intermittent failure can be read afterwards. `npm test -- FILE` runs just those files.
-- **todo**, a new default extension: a shared task list for you and other pi agents at `.pi/TODO.md` (a plain markdown checklist), with locked claims so two agents never own the same task. `todo` tool for agents, `/todo` for you, and one static line above the editor while tasks are open. Nothing is written until a task is added. Moved from an untracked folder in dotfiles, where it only loaded for that one project.
+
+### Changed
+
+- aa-info: reads every page of Artificial Analysis's free `language/models/free` endpoint and nothing else. The legacy `/api/v2/data/llms/models` it read quality, speed and rates from retires on 2026-11-04. The old code read only page 1 of the cost endpoint, so $/task now covers every model AA has priced, not just the first 200 rows. `$/1M` is computed as AA's 3:1 blend; Kimi models count as Moonshot for the peer line.
+- provider-usage: Copilot's per-workday allowance reads `4.3%/d`, without the `↓` that now means "slow down" in the footer.
+- One `lib/tool-search.ts` helper for every extension with a deferred tool (agent-link and goal had their own copies), and `test/deferred-tools.test.mjs` checks every deferred tool in the manifest stays reachable with subagent turned off.
+- The `todo` tool is declared in every session. If you also load another extension that registers a tool named `todo` (pi's `examples/extensions/todo.ts`, for one), drop one of them.
+
+### Fixed
+
+- aa-info: a failed refresh backs off instead of retrying on every model switch. It's recorded in the cache as `retryAt`, so every pi sharing the cache holds off for an hour (or a 429's `Retry-After`, if longer), and briefings keep coming from the stale snapshot rather than going blank.
+- agent-link removes its `~/.claude/sessions/<pid>.json` on a hard exit too, not only on `session_shutdown`. Print-mode runs that `process.exit` (such as `scripts/bench.mjs`) leaked one file each, and a later process reusing the pid showed it as its session name; the footer now also ignores a registry file older than its process.
+- footer: the git chip lost its dirty marker (and "unless clean default" stopped working) in repos where `git status` took over 1s, such as dotfiles with 4 submodules: the timeout blanked the state. A timeout or failed spawn now keeps the last state, the limit is 3s, and status runs with `--ignore-submodules=dirty` (1.6s → 0.5s in dotfiles).
 
 ## 0.2.1 — 2026-10-16
 
