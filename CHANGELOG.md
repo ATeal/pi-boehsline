@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+### Added
+
+- image-prune (opt-in): pi resends every image in context on every request until compaction, and base64 doesn't compress. Once the visible images pass `thresholdMB` (default 5), one batch of `context_edit` replacements at `turn_end` swaps every image older than the last `keepTurns` (2) user turns for a note with a path the read tool can open; pasted images are saved under `~/.pi/agent/tmp/image-prune/` first. One batch, not one image per turn, so the prompt cache is rewritten once. `/image-prune` shows the images in context; `/image-prune now` forces a batch.
+
 ## 0.2.6 — 2026-10-17
 
 ### Added
