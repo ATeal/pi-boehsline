@@ -2238,6 +2238,49 @@ test("bottom-border placement: the chips go in the bottom border before pi's ↓
   });
 });
 
+test("bottom border left: the chips start the line, pi's ↓ stays at the right; an old 'bottom border' means right", async () => {
+  const chips = [{ text: "dotfiles", width: 8 }, { text: "main*", width: 5 }];
+  const id = (t) => t;
+  const left = topBorderLayout("", chips, 0, 30, id, "↓", "left");
+  assert.equal(left.line, "── dotfiles main* ────────────");
+  assert.equal(left.line.length, 30);
+  left.starts.forEach((start, i) => assert.equal(left.line.slice(start, start + chips[i].width), chips[i].text));
+  // The indicator takes room: only the first chip fits beside it at 30.
+  assert.equal(topBorderLayout("", chips, 4, 30, id, "↓", "left").line, "── dotfiles ────── ↓ 4 more ──");
+  assert.equal(topBorderLayout("", chips, 0, 15, id, "↓", "left").line, "── dotfiles ───", "the narrowest that fits one");
+  assert.equal(topBorderLayout("", chips, 0, 14, id, "↓", "left"), undefined);
+  await withAgentDir(async (dir) => {
+    writeFileSync(path.join(dir, "footer.json"), JSON.stringify({ placement: "bottom border left" }));
+    const editorLike = () => {
+      const editor = {
+        ...fakeEditor(),
+        renderBottomBorder: (width, hidden) => `pibottom:${width}:${hidden}`,
+        render: (width) => [editor.renderTopBorder(width, 0), " text", editor.renderBottomBorder(width, 0)],
+      };
+      return editor;
+    };
+    const ui = await mount({ mode: "tui", sessionName: "my-session", editorFactory: editorLike });
+    await ui.settled();
+    const lines = ui.editorFactory()().render(120).map(strip);
+    assert.match(lines[2], /^\{──\} dotfiles master\* gh opus hi 41\/1m \{─+\}$/);
+    assert.deepEqual(ui.plain(), [], "every chip went into the border");
+    writeFileSync(path.join(dir, "footer.json"), JSON.stringify({ placement: "bottom border" }));
+    assert.equal(readFooterConfig().placement, "bottom border right", "saved before the split: the right");
+  });
+});
+
+test("a throw while the top border lays out can't leave the name marked as drawn", async () => {
+  await withAgentDir(async (dir) => {
+    writeFileSync(path.join(dir, "footer.json"), JSON.stringify({ placement: "top border" }));
+    const ui = await mount({ mode: "tui", sessionName: "my-session", editorFactory: () => ({ ...fakeEditor(), borderColor: () => { throw new Error("paint"); } }) });
+    await ui.settled();
+    const editor = ui.editorFactory()();
+    assert.throws(() => editor.renderTopBorder(120, 0), /paint/);
+    await Promise.resolve();
+    assert.match(ui.plain()[0], / my-session$/, "the footer shows the name again");
+  });
+});
+
 test("top-border chips are clickable in fullscreen, and other clicks reach the editor", async () => {
   await withAgentDir(async (dir) => {
     writeFileSync(path.join(dir, "footer.json"), JSON.stringify({ placement: "top border" }));
@@ -2270,7 +2313,9 @@ test("/footer: Placement is the first row, cycles below → top border, and save
     list.handleInput(" ");
     assert.match(selected(), /→ Placement\s+top border/);
     list.handleInput(" ");
-    assert.match(selected(), /→ Placement\s+bottom border/);
+    assert.match(selected(), /→ Placement\s+bottom border left/);
+    list.handleInput(" ");
+    assert.match(selected(), /→ Placement\s+bottom border right/);
     list.handleInput(" ");
     assert.match(selected(), /→ Placement\s+below/);
     list.handleInput(" ");

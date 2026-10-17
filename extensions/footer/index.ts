@@ -189,7 +189,7 @@ export interface FooterConfig {
    * name hides the chip there. Not editable in /footer; kept when it saves.
    */
   dirNames?: Record<string, string>;
-  /** "top border" puts the chips in the editor's top border, right of the name, "bottom border" in its bottom one; absent means below. */
+  /** "top border" puts the chips in the editor's top border, right of the name; "bottom border left"/"right" in its bottom one; absent means below. */
   placement?: string;
 }
 
@@ -275,8 +275,8 @@ export const LAYOUT_ROWS = [
   {
     key: "placement",
     label: "Placement",
-    description: "Below the editor, in the editor's top border (right of the session name), or in its bottom border: chips that don't fit stay below, whole, in order.",
-    values: ["below", "top border", "bottom border"],
+    description: "Below the editor, in the editor's top border (right of the session name), or in its bottom border, at the left or the right: chips that don't fit stay below, whole, in order.",
+    values: ["below", "top border", "bottom border left", "bottom border right"],
   },
 ] as const satisfies readonly { key: keyof FooterConfig; label: string; description: string; values: readonly string[] }[];
 
@@ -329,7 +329,8 @@ export function nameTopBorder(
  * that fits whole, and the caller leaves the rest below. undefined when no
  * chip fits, so the caller draws the name alone (nameTopBorder).
  * `starts` are the chips' first columns, for click zones. The bottom border
- * uses it too, with no name and pi's ↓ arrow.
+ * uses it too, with no name and pi's ↓ arrow, and can put the chips at the
+ * left: `── dir main* opus ────── ↓ 3 more ──`.
  */
 export function topBorderLayout(
   name: string,
@@ -338,8 +339,31 @@ export function topBorderLayout(
   width: number,
   border: (text: string) => string,
   arrow: "↑" | "↓" = "↑",
+  align: "left" | "right" = "right",
 ): { line: string; taken: number; starts: number[] } | undefined {
   const tail = hiddenLineCount > 0 ? `─ ${arrow} ${hiddenLineCount} more ──` : "──";
+  if (align === "left") {
+    // "── " + chips + " " + at least one ─ + the tail. No name on this side.
+    const room = width - 3 - 1 - 1 - visibleWidth(tail);
+    let count = 0;
+    let span = 0;
+    for (const chip of chips) {
+      const next = span + (count > 0 ? 1 : 0) + chip.width;
+      if (next > room) break;
+      span = next;
+      count += 1;
+    }
+    if (count === 0) return undefined;
+    const starts: number[] = [];
+    let at = 3;
+    for (const chip of chips.slice(0, count)) {
+      starts.push(at);
+      at += chip.width + 1;
+    }
+    const text = chips.slice(0, count).map((chip) => chip.text).join(" ");
+    const rest = width - 3 - span - 1 - visibleWidth(tail);
+    return { line: `${border("──")} ${text} ${border("─".repeat(rest) + tail)}`, taken: count, starts };
+  }
   const leftWidth = name ? 4 + visibleWidth(name) : 0;
   // At least one ─ (two without a name, so the line still starts as a border),
   // a space either side of the chips, then the tail.
@@ -434,6 +458,8 @@ export function readFooterConfig(): FooterConfig {
   });
   const config: FooterConfig = { hidden, modes, order };
   // Unknown values fall back to the default, which is left out.
+  // Saved before Placement split the bottom border in two: it meant the right.
+  if (parsed.placement === "bottom border") parsed.placement = "bottom border right";
   for (const row of SETTING_ROWS) {
     const value = parsed[row.key];
     if (typeof value === "string" && value !== row.values[0] && (row.values as readonly string[]).includes(value)) {
@@ -2270,7 +2296,7 @@ export default function footerExtension(pi: ExtensionAPI): void {
        * editor's render, so it falls back to no chips and warns once.
        */
       const chipsFor = (where: "top border" | "bottom border"): FooterPart[] => {
-        if (footerConfig.placement !== where) return [];
+        if (!footerConfig.placement?.startsWith(where)) return [];
         try {
           return borderParts?.() ?? [];
         } catch (error) {
@@ -2321,8 +2347,9 @@ export default function footerExtension(pi: ExtensionAPI): void {
         }
         const name = nameShownAs("border") ? sessionNameText(ctx.ui.theme, () => tui.requestRender(), borderPaint) : "";
         // Provisional while the chips are collected (the bypass chip asks
-        // whether the name is on screen); settled below once it's drawn.
-        borderNamePainted = !!name;
+        // whether the name is on screen); settled below once it's drawn. It
+        // queues its own clearing, so a throw before then can't leave it set.
+        markNamePainted(!!name);
         const parts = chipsFor("top border");
         const layout = parts.length ? topBorderLayout(name, parts, hidden, width, borderPaint) : undefined;
         topClickRow = {};
@@ -2354,7 +2381,8 @@ export default function footerExtension(pi: ExtensionAPI): void {
         const piBottom = bottomTarget.renderBottomBorder.bind(editor);
         bottomTarget.renderBottomBorder = (width, hidden) => {
           const parts = chipsFor("bottom border");
-          const layout = parts.length ? topBorderLayout("", parts, hidden, width, borderPaint, "↓") : undefined;
+          const align = footerConfig.placement === "bottom border left" ? "left" : "right";
+          const layout = parts.length ? topBorderLayout("", parts, hidden, width, borderPaint, "↓", align) : undefined;
           bottomClickRow = {};
           bottomLine = undefined;
           if (!layout) return piBottom(width, hidden);
@@ -2632,7 +2660,7 @@ export default function footerExtension(pi: ExtensionAPI): void {
         }
         return { parts, samples, statuses, previewStyle, placeholder };
       };
-      borderParts = () => (enabled && footerConfig.placement?.endsWith(" border") ? collect().parts : []);
+      borderParts = () => (enabled && footerConfig.placement?.includes(" border") ? collect().parts : []);
 
       return {
         dispose: () => {
