@@ -992,34 +992,14 @@ async function health(): Promise<{ version?: string; pid?: number } | undefined>
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 let daemonReady: Promise<boolean> | undefined;
 
-/** Start the shared daemon unless a current one answers. Replaces a stale one. */
+/**
+ * Start the shared daemon unless a current one answers. Replaces a stale one.
+ * Never rejects: callers fire and forget it (session_start, every write), and
+ * an unhandled rejection ends pi. An unwritable canvas root or a failed spawn
+ * resolves false, which reads as "no daemon" everywhere.
+ */
 export function ensureDaemon(): Promise<boolean> {
-  daemonReady ??= (async () => {
-    const version = daemonVersion();
-    const h = await health();
-    if (h?.version === version) return true;
-    if (h?.pid) {
-      try {
-        process.kill(h.pid, "SIGTERM");
-      } catch {}
-      for (let i = 0; i < 20 && (await health()); i++) await sleep(100);
-    }
-    const root = canvasRoot();
-    mkdirSync(root, { recursive: true });
-    const log = openSync(join(root, ".daemon.log"), "a");
-    const node = basename(process.execPath).startsWith("node") ? process.execPath : "node";
-    const child = spawn(node, [DAEMON, "--port", String(PORT), "--root", root, "--version", version], {
-      detached: true,
-      stdio: ["ignore", log, log],
-      env: { ...process.env, PI_CANVAS_ROOT: root },
-    });
-    child.unref();
-    for (let i = 0; i < 30; i++) {
-      await sleep(100);
-      if ((await health())?.version) return true;
-    }
-    return false;
-  })();
+  daemonReady ??= startDaemon().catch(() => false);
   const attempt = daemonReady;
   // Only the attempt in flight is shared. Once it settles, the next call checks
   // /health again (one loopback request), so a daemon killed or crashed since
@@ -1028,6 +1008,36 @@ export function ensureDaemon(): Promise<boolean> {
     if (daemonReady === attempt) daemonReady = undefined;
   });
   return attempt;
+}
+
+async function startDaemon(): Promise<boolean> {
+  const version = daemonVersion();
+  const h = await health();
+  if (h?.version === version) return true;
+  if (h?.pid) {
+    try {
+      process.kill(h.pid, "SIGTERM");
+    } catch {}
+    for (let i = 0; i < 20 && (await health()); i++) await sleep(100);
+  }
+  const root = canvasRoot();
+  mkdirSync(root, { recursive: true });
+  const log = openSync(join(root, ".daemon.log"), "a");
+  const node = basename(process.execPath).startsWith("node") ? process.execPath : "node";
+  const child = spawn(node, [DAEMON, "--port", String(PORT), "--root", root, "--version", version], {
+    detached: true,
+    stdio: ["ignore", log, log],
+    env: { ...process.env, PI_CANVAS_ROOT: root },
+  });
+  // A spawn failure (no node on PATH) arrives as an "error" event, which throws
+  // when nothing listens. The health loop below then reports false.
+  child.on("error", () => {});
+  child.unref();
+  for (let i = 0; i < 30; i++) {
+    await sleep(100);
+    if ((await health())?.version) return true;
+  }
+  return false;
 }
 
 // ── safari ───────────────────────────────────────────────────────────────────
@@ -2074,7 +2084,20 @@ export default function canvas(pi: ExtensionAPI) {
     }
   }
 
+  /**
+   * One status run. Never rejects: turn_end fires it and forgets it, so an
+   * error (say ensureDir on an unwritable canvas root) becomes the result
+   * string instead of an unhandled rejection, which would end pi.
+   */
   async function refreshStatus(ctx: ExtensionContext, force = false): Promise<string> {
+    try {
+      return await refreshStatusOnce(ctx, force);
+    } catch (error) {
+      return `failed: ${error instanceof Error ? error.message : String(error)}`;
+    }
+  }
+
+  async function refreshStatusOnce(ctx: ExtensionContext, force: boolean): Promise<string> {
     const turn = lastTurn(ctx.sessionManager.getBranch() || []);
     if (!force && !worthStatus(turn)) return "skipped: short turn";
     const reg = ctx.modelRegistry as unknown as Registry;

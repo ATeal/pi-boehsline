@@ -28,7 +28,7 @@ import type {
 } from "@earendil-works/pi-coding-agent";
 import { Type } from "typebox";
 import { spawn } from "node:child_process";
-import { mkdir, readFile, rename, rm, stat, writeFile } from "node:fs/promises";
+import { appendFile, mkdir, readFile, rename, rm, stat, writeFile } from "node:fs/promises";
 import { homedir } from "node:os";
 import { join } from "node:path";
 import { readSecret, secretSourceLabel } from "../../lib/secrets.ts";
@@ -200,10 +200,27 @@ function isProvider(ctx: ExtensionContext, provider: string): boolean {
 }
 
 /** True for 429 / rate_limit_error bodies, whose raw JSON must never reach
- *  console.error (it interleaves with the footer TUI). Callers throw a short
+ *  the log. Callers throw a short
  *  friendly message instead, and refreshDriver backs off. */
 function isRateLimitError(err: Error): boolean {
   return err.message.includes("(429)") || err.message.includes("rate_limit") || err.message.includes("Rate limited");
+}
+
+/** One line to provider-usage.log in the agent dir, best effort. Not
+ *  console.error: that interleaves with the footer TUI. */
+function logLine(message: string): void {
+  const line = `${new Date().toISOString()} ${message}\n`;
+  void appendFile(join(agentDirectory(), "provider-usage.log"), line).catch(() => {});
+}
+
+/** For the .catch of a background refresh nothing awaits: a rethrow there is an
+ *  unhandled rejection, which ends pi. A stale ctx is the session going away;
+ *  anything else is logged and dropped, and the next poll tries again. */
+function dropBackgroundError(driverId: string): (err: unknown) => void {
+  return (err) => {
+    if (isStaleCtxError(err)) return;
+    logLine(`[${driverId}] background refresh failed: ${err instanceof Error ? err.stack ?? err.message : String(err)}`);
+  };
 }
 
 /** A captured ctx used after newSession/fork/switchSession/reload throws this.
@@ -2375,7 +2392,7 @@ async function refreshDriver(
     }
     if (state.warned) {
       state.warned = false;
-      console.error(`[${driver.id}] usage fetch recovered`);
+      logLine(`[${driver.id}] usage fetch recovered`);
     }
     // The footer reads stashes during renders; poke it so a new cost-slot chip
     // paints immediately instead of waiting for the next render event.
@@ -2397,9 +2414,7 @@ async function refreshDriver(
     // token doesn't spam the console on every settle.
     if (!state.warned) {
       state.warned = true;
-      console.error(
-        `[${driver.id}] usage fetch failed: ${err instanceof Error ? err.message : err}`,
-      );
+      logLine(`[${driver.id}] usage fetch failed: ${err instanceof Error ? err.message : err}`);
     }
     if (options.surfaceError) throw err;
     return undefined;
@@ -2518,9 +2533,7 @@ export default function providerUsage(pi: ExtensionAPI): void {
   function refreshAll(ctx: ExtensionContext): void {
     latestCtx = ctx;
     for (const driver of DRIVERS) {
-      void refreshDriver(pi, ctx, driver).catch((err) => {
-        if (!isStaleCtxError(err)) throw err;
-      });
+      void refreshDriver(pi, ctx, driver).catch(dropBackgroundError(driver.id));
     }
   }
 
@@ -2536,9 +2549,7 @@ export default function providerUsage(pi: ExtensionAPI): void {
       const ctx = latestCtx;
       if (!ctx) return;
       for (const driver of DRIVERS) {
-        void refreshDriver(pi, ctx, driver).catch((err) => {
-          if (!isStaleCtxError(err)) throw err;
-        });
+        void refreshDriver(pi, ctx, driver).catch(dropBackgroundError(driver.id));
       }
     }, POLL_INTERVAL_MS);
     pollTimer.unref?.();
@@ -2569,9 +2580,7 @@ export default function providerUsage(pi: ExtensionAPI): void {
     const ctx = latestCtx;
     const driver = DRIVERS.find((candidate) => candidate.id === "copilot-window");
     if (!ctx || !driver) return;
-    void refreshDriver(pi, ctx, driver, { force: true }).catch((err) => {
-      if (!isStaleCtxError(err)) throw err;
-    });
+    void refreshDriver(pi, ctx, driver, { force: true }).catch(dropBackgroundError(driver.id));
   });
 
   pi.on("agent_settled", (_event, ctx) => {
