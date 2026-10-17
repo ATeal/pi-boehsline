@@ -4,6 +4,13 @@
  *
  *   node scripts/bench.mjs [--runs 9] [--model provider/id] [--json out.json] [--real]
  *   node scripts/bench.mjs --each [--runs 5]    one extension at a time on stock pi
+ *   node scripts/bench.mjs --check docs/benchmarks.md [--tolerance 0.1]
+ *       CI: measure starting context only, offline, and fail if Boehsline's
+ *       total is more than 10% over the number documented there
+ *
+ * --offline uses a stand-in Anthropic-API model (no login needed: the probe
+ * exits before anything is sent), --context-only skips the boot timing, and
+ * PI_BIN points at a pi that isn't on PATH.
  *
  * Each config gets its own empty agent dir (auth.json and models.json are
  * symlinked from yours, never copied) and runs from an empty cwd, so no
@@ -38,6 +45,21 @@ const opt = (name, fallback) => {
 	return i >= 0 ? args[i + 1] : fallback;
 };
 const RUNS = Number(opt("runs", "9"));
+const CHECK = opt("check");
+const OFFLINE = args.includes("--offline") || Boolean(CHECK);
+const CONTEXT_ONLY = args.includes("--context-only") || Boolean(CHECK);
+const PI = process.env.PI_BIN || "pi";
+// A stand-in model in the same API format as Claude on Copilot or Anthropic,
+// so offline numbers match the documented ones. Never called: the probe exits
+// at before_provider_request.
+const OFFLINE_PROVIDER = {
+	bench: {
+		baseUrl: "http://127.0.0.1:9",
+		api: "anthropic-messages",
+		apiKey: "bench-offline",
+		models: [{ id: "claude-bench", name: "Bench (offline)", reasoning: true, contextWindow: 200000, maxTokens: 32000 }],
+	},
+};
 const REAL_AGENT = join(homedir(), ".pi", "agent");
 const realSettings = (() => {
 	try {
@@ -46,7 +68,7 @@ const realSettings = (() => {
 		return {};
 	}
 })();
-const MODEL = opt("model", realSettings.defaultProvider ? `${realSettings.defaultProvider}/${realSettings.defaultModel}` : "");
+const MODEL = OFFLINE ? "bench/claude-bench" : opt("model", realSettings.defaultProvider ? `${realSettings.defaultProvider}/${realSettings.defaultModel}` : "");
 if (!MODEL) throw new Error("pass --model provider/id (a model you're logged in to)");
 const OPT_INS = ["approval-guardian", "meeting", "omlx", "sc", "tmux-attention", "update", "watch", "wiki-session-log"];
 const CHARS_PER_TOKEN = 3.6;
@@ -71,7 +93,8 @@ export default function (pi: any) {
 function agentDir(name, settings, config) {
 	const dir = join(work, name);
 	mkdirSync(dir);
-	for (const f of ["auth.json", "models.json"]) if (existsSync(join(REAL_AGENT, f))) symlinkSync(join(REAL_AGENT, f), join(dir, f));
+	if (OFFLINE) writeFileSync(join(dir, "models.json"), JSON.stringify({ providers: OFFLINE_PROVIDER }));
+	else for (const f of ["auth.json", "models.json"]) if (existsSync(join(REAL_AGENT, f))) symlinkSync(join(REAL_AGENT, f), join(dir, f));
 	const [provider, ...rest] = MODEL.split("/");
 	writeFileSync(join(dir, "settings.json"), JSON.stringify({ defaultProvider: provider, defaultModel: rest.join("/"), quietStartup: true, ...settings }, null, 2));
 	writeFileSync(join(dir, "boehsline.json"), JSON.stringify(config));
@@ -118,7 +141,7 @@ import json, subprocess, sys, time
 out, err = sys.argv[1], sys.argv[2]
 t0 = time.perf_counter()
 e = open(err, "w")
-p = subprocess.Popen(["pi", "--no-session"], stderr=e)
+p = subprocess.Popen([sys.argv[3], "--no-session"], stderr=e)
 # pi prints its timings once the TUI is up. Extensions that hold timers or
 # watchers keep the process alive afterwards (pi doesn't process.exit in
 # benchmark mode), so the clock stops at the timings and pi is stopped.
@@ -151,7 +174,7 @@ function bootOnce(env) {
 	execFileSync("tmux", [
 		"new-session", "-d", "-s", session, "-x", "160", "-y", "50", "-c", cwd,
 		...Object.entries(vars).flatMap(([k, v]) => ["-e", `${k}=${v}`]),
-		"python3", "-c", TIMER, out, err,
+		"python3", "-c", TIMER, out, err, PI,
 	]);
 	const deadline = Date.now() + 60_000;
 	while (!existsSync(out) && Date.now() < deadline) sleep(50);
@@ -186,7 +209,7 @@ function textOf(x) {
 
 function context(env) {
 	const out = join(work, `payload-${env.PI_CODING_AGENT_DIR.split("/").pop()}.json`);
-	const r = spawnSync("pi", ["--no-session", "-p", "hi", "--model", MODEL, "-e", PROBE], {
+	const r = spawnSync(PI, ["--no-session", "-p", "hi", "--model", MODEL, "-e", PROBE], {
 		cwd,
 		env: { ...process.env, ...env, BENCH_OUT: out },
 		encoding: "utf8",
@@ -210,7 +233,7 @@ function context(env) {
 	};
 }
 
-const piVersion = execFileSync("pi", ["--version"], { encoding: "utf8" }).trim();
+const piVersion = execFileSync(PI, ["--version"], { encoding: "utf8" }).trim();
 
 if (args.includes("--each")) {
 	// Stock pi plus one extension (opt-ins enabled), to see what each one costs.
@@ -242,10 +265,36 @@ if (args.includes("--each")) {
 	if (!args.includes("--keep")) rmSync(work, { recursive: true, force: true });
 	process.exit(0);
 }
+if (CHECK) {
+	// The documented row: "| + Boehsline (defaults) | ... | **5,108** (+2779) |"
+	const docs = readFileSync(CHECK, "utf8");
+	const m = docs.match(/^\| \+ Boehsline \(defaults\) \|.*\*\*([\d,]+)\*\*/m);
+	if (!m) throw new Error(`no "+ Boehsline (defaults)" row with a **total** in ${CHECK}`);
+	const documented = Number(m[1].replace(/,/g, ""));
+	const tolerance = Number(opt("tolerance", "0.1"));
+	const stock = context(configs[0].env).tokens;
+	const now = context(configs[1].env).tokens;
+	const limit = Math.round(documented * (1 + tolerance));
+	const pct = (((now - documented) / documented) * 100).toFixed(1);
+	console.log(`pi ${piVersion} · offline stand-in model · starting context`);
+	console.log(`  stock pi      ~${stock.toLocaleString()} tokens`);
+	console.log(`  + Boehsline   ~${now.toLocaleString()} tokens (Boehsline adds ~${(now - stock).toLocaleString()})`);
+	console.log(`  documented    ~${documented.toLocaleString()} tokens in ${CHECK}; limit ${limit.toLocaleString()} (+${tolerance * 100}%)`);
+	rmSync(work, { recursive: true, force: true });
+	if (now > limit) {
+		console.log(`\nFAIL: starting context is ${pct}% over the documented ${documented.toLocaleString()}.`);
+		console.log("Trim what grew, or if it's worth it, rerun `node scripts/bench.mjs` and update docs/benchmarks.md.");
+		process.exit(1);
+	}
+	console.log(`\nOK: ${pct}% vs documented.`);
+	process.exit(0);
+}
+
 const results = { pi: piVersion, model: MODEL, runs: RUNS, node: process.version, platform: `${process.platform}-${process.arch}`, configs: {} };
+const NO_BOOT = { wall: NaN, main: NaN, phases: {}, extensions: {} };
 for (const c of configs) {
-	process.stderr.write(`${c.name}: boot ×${RUNS + 1}… `);
-	const b = boot(c.env);
+	process.stderr.write(CONTEXT_ONLY ? `${c.name}: ` : `${c.name}: boot ×${RUNS + 1}… `);
+	const b = CONTEXT_ONLY ? NO_BOOT : boot(c.env);
 	process.stderr.write(`context… `);
 	const ctx = context(c.env);
 	results.configs[c.name] = { boot: b, context: ctx };

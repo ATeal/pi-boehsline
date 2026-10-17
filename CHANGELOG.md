@@ -1,5 +1,10 @@
 # Changelog
 
+## Unreleased
+
+- **CI checks the context budget.** \`node scripts/bench.mjs --check docs/benchmarks.md\` measures starting context offline (a stand-in model, nothing sent) and the \`context-budget\` job fails if it's more than 10% over the documented number. \`scripts/bench.mjs\` gains \`--offline\`, \`--context-only\`, \`--check\` and \`PI_BIN\`.
+- One \`lib/tool-search.ts\` helper for every extension with a deferred tool (agent-link and goal had their own copies), and \`test/deferred-tools.test.mjs\` checks every deferred tool in the manifest stays reachable with subagent turned off.
+
 ## 0.2.1 — 2026-10-16
 
 ### Fixed

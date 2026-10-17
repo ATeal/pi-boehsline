@@ -35,6 +35,22 @@ jobs:
           node-version: '24'
       - run: scripts/typecheck.sh
 
+  context-budget:
+    # Starting context with Boehsline must stay within 10% of the number in
+    # docs/benchmarks.md. Offline: a stand-in model, nothing is sent.
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+      - run: npm install --no-audit --no-fund
+      # Installs the pinned pi into .typecheck/ (no mise in CI).
+      - run: scripts/typecheck.sh --link-only
+      - run: node scripts/bench.mjs --check docs/benchmarks.md
+        env:
+          PI_BIN: ${{ github.workspace }}/.typecheck/node_modules/.bin/pi
+
   notif-watch:
     # The Swift notification reader; its tests skip on Linux.
     runs-on: macos-latest

@@ -100,6 +100,10 @@ Stock pi plus that one extension, opt-ins enabled, median of 5. Single-digit dif
 
 What's left at startup is mostly deliberate: omlx asks your local oMLX server what's loaded before pi resolves models (a refused port is instant; a hung server is capped at 750ms), and approval-guardian and watch are large modules (both opt-in).
 
+## In CI
+
+The \`context-budget\` job runs \`node scripts/bench.mjs --check docs/benchmarks.md\`: it measures the starting context offline (a stand-in model in Claude's API format, so the count matches the table above; nothing is sent) and fails if Boehsline's total is more than 10% over the **total** in the "+ Boehsline (defaults)" row. When growth is worth it, rerun \`node scripts/bench.mjs\` and update this file in the same change.
+
 ## Method
 
 - Each config gets its own empty agent directory (your `auth.json` and `models.json` linked in, nothing else) and runs from an empty working directory, so no `AGENTS.md`, skills or other packages are counted.
