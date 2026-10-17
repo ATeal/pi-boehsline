@@ -29,6 +29,7 @@ import footer, {
   dirLabel,
   readChipDefaults,
   paceMark,
+  rateChipShown,
   renderMiniUsage,
   usageChipHidden,
   usagePace,
@@ -345,6 +346,42 @@ test("tk/s chip: bare live estimate while streaming, exact rate after message_en
   await ui.fire("message_start", { message: { role: "user" } });
   await ui.fire("message_end", { message: { role: "user" } });
   assert.ok(ui.plain()[0].endsWith(" 43"));
+});
+
+test("rateChipShown: 'after Ns' needs the running turn, or the last one, to reach N", () => {
+  assert.equal(rateChipShown(undefined, { active: false }), true);
+  assert.equal(rateChipShown("always", { active: true, elapsedMs: 0 }), true);
+  assert.equal(rateChipShown("after 5s", { active: true, elapsedMs: 4_999 }), false);
+  assert.equal(rateChipShown("after 5s", { active: true, elapsedMs: 5_000 }), true);
+  assert.equal(rateChipShown("after 5s", { active: false, lastTurnMs: 6_000 }), true);
+  assert.equal(rateChipShown("after 5s", { active: false, lastTurnMs: 2_000 }), false);
+  assert.equal(rateChipShown("after 30s", { active: false }), false, "no turn yet");
+  assert.equal(rateChipShown("after 2s", { active: true, elapsedMs: 2_500, lastTurnMs: 100 }), true, "the running turn decides");
+});
+
+test("with 'after 5s', a slow turn shows the counter past 5s and keeps its rate; a fast turn hides it", async (t) => {
+  await withAgentDir(async (dir) => {
+    writeFileSync(path.join(dir, "footer.json"), JSON.stringify({ rateWhen: "after 5s" }));
+    const clock = { now: 1_000_000 };
+    t.mock.method(Date, "now", () => clock.now);
+    const ui = await mount();
+    const end = () => ui.plain()[0].split(" ").at(-1);
+
+    await ui.fire("turn_start", {});
+    await ui.fire("message_start", { message: { role: "assistant", usage: { output: 0 } } });
+    clock.now += 1_000;
+    assert.equal(end(), "41/1m", "1s in: no counter yet");
+    clock.now += 5_000;
+    assert.equal(end(), "6.0s", "past 5s: the counter appears");
+    const message = { role: "assistant", usage: { output: 0 } };
+    await ui.fire("message_update", { message, assistantMessageEvent: { type: "text_delta", delta: "x" } });
+    clock.now += 1_000;
+    await ui.fire("message_end", { message: { role: "assistant", usage: { output: 50 } } });
+    assert.equal(end(), "50", "a 7s turn keeps its rate");
+
+    await streamReply(ui, clock, { ttft: 1_000, ms: 1_000, output: 100 });
+    assert.equal(end(), "41/1m", "a 2s turn hides it, rather than leaving the slow turn's rate up");
+  });
 });
 
 test("tk/s live estimate calibrates to the provider's tokens-per-char", async (t) => {
@@ -2056,7 +2093,7 @@ test("/footer reorders with J/K or Shift+arrows, j/k navigate, and the name row 
     list.handleInput("\x1b[1;2A"); // Shift+Up on the name row: still nothing to save
     assert.equal(existsSync(file), false);
 
-    list.handleInput("k"); // Token rate
+    selectRow(list, /^→ Token rate/, "k"); // up past its Rate condition row
     list.handleInput("K"); // above Boot time
     list.handleInput("\x1bs");
     assert.deepEqual(JSON.parse(readFileSync(file, "utf8")).order.slice(-2), ["rate", "boot"], "Alt+S saves the order");

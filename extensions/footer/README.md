@@ -62,6 +62,11 @@ within ±5, on the same colour ladders (`4%↑66/22%↓8`, `61.4%↓8 4.3%/d`); 
 then shows `↓8` instead of `↓`. Copilot's `4.3%/d` is the share left per
 remaining workday, not pace.
 
+The Token rate chip's Rate condition (`after 2s`, `5s`, `10s`, `30s`) shows it
+only for slow turns: nothing until a request has run that long, then the
+waiting counter, the live rate and its final rate. A faster turn hides it
+again rather than leaving the slow turn's rate up.
+
 Reopening `/footer` keeps the session's unsaved changes; a new session starts
 from the saved file. A saved mode is where each session starts; clicking a chip
 still flips it, for that session only. Chips added later start shown, in their default mode, after

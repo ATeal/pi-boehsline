@@ -173,6 +173,8 @@ export interface FooterConfig {
   usageWhen?: string;
   /** "on" adds each window's pace (↓8 ahead / ↑12 behind) to compact and detailed, and points to mini. */
   usagePace?: string;
+  /** "after Ns": the token-rate chip shows only for turns that ran at least N seconds; absent means always. */
+  rateWhen?: string;
   /** Copilot workdays off still ahead this cycle ("0"–"15"); provider-usage reads it for the ↓%/d allowance. */
   copilotOoo?: string;
   /** When copilotOoo was set; provider-usage ignores it once a new Copilot cycle starts. */
@@ -241,6 +243,13 @@ export const CONDITION_ROWS = [
     label: "Usage pace",
     description: "Add each window's pace after its %: ↓8 is 8 points ahead (slow down), ↑12 is 12 behind (speed up); nothing within ±5. Mini shows ↓8 instead of ↓.",
     values: ["off", "on"],
+  },
+  {
+    key: "rateWhen",
+    chip: "rate",
+    label: "Rate condition",
+    description: "Show the token-rate chip only for slow turns: once a request has run this long (counter, live rate, then its final rate). A faster turn hides it.",
+    values: ["always", "after 2s", "after 5s", "after 10s", "after 30s"],
   },
   {
     key: "copilotOoo",
@@ -446,6 +455,22 @@ export function defaultChipHidden(
   // pi starts a model on its own modelThinkingLevels entry before the global default.
   const start = defaults.modelThinking?.[`${current.provider}/${current.model}`] ?? defaults.thinking;
   return current.thinking === start;
+}
+
+/**
+ * Whether the Rate condition lets the token-rate chip show. During a turn
+ * (waiting or streaming) it shows once the turn has run N seconds; between
+ * turns it shows only if the last turn took at least N.
+ */
+export function rateChipShown(
+  when: string | undefined,
+  turn: { active: boolean; elapsedMs?: number; lastTurnMs?: number },
+): boolean {
+  const match = /^after (\d+)s$/.exec(when ?? "");
+  if (!match) return true;
+  const thresholdMs = Number(match[1]) * 1_000;
+  const ms = turn.active ? turn.elapsedMs : turn.lastTurnMs;
+  return ms !== undefined && ms >= thresholdMs;
 }
 
 /** Minutes until a footer clock label ("2:41p") next comes round, for the idle countdown. */
@@ -1846,6 +1871,8 @@ export default function footerExtension(pi: ExtensionAPI): void {
   let liveRate: number | undefined;
   let liveTtftMs: number | undefined;
   let lastRate: number | undefined;
+  // How long the last turn took, turn_start to message_end, for the Rate condition.
+  let lastTurnMs: number | undefined;
   let lastTtftMs: number | undefined;
   /** The rate chip shows "3.1s 99tk/s" instead of the bare "99" when true. */
   let detailedRate = false;
@@ -2144,7 +2171,13 @@ export default function footerExtension(pi: ExtensionAPI): void {
             // (faint) while streaming, and the exact figure once it ends.
             [
               "rate",
-              waitingForToken && turnStartMs !== undefined
+              !rateChipShown(footerConfig.rateWhen, {
+                active: waitingForToken || streaming,
+                elapsedMs: turnStartMs === undefined ? undefined : Date.now() - turnStartMs,
+                lastTurnMs,
+              })
+                ? ""
+                : waitingForToken && turnStartMs !== undefined
                 ? `${theme.fg("dim", `${((Date.now() - turnStartMs) / 1_000).toFixed(1)}s`)}${
                     detailedRate && lastRate !== undefined
                       ? ` ${faint(color(rateColor(lastRate, lightTheme), `${formatRateValue(lastRate)}tk/s`))}`
@@ -2800,6 +2833,7 @@ export default function footerExtension(pi: ExtensionAPI): void {
     liveTtftMs = undefined;
     lastRate = undefined;
     lastTtftMs = undefined;
+    lastTurnMs = undefined;
     coldStart = event.reason === "startup";
     // The click toggles start each session in the modes /footer saved, and
     // unsaved /footer changes stay with the session they were made in.
@@ -2888,6 +2922,7 @@ export default function footerExtension(pi: ExtensionAPI): void {
   pi.on("message_end", async (event) => {
     if (!streaming || !isAssistant(event.message)) return undefined;
     const now = Date.now();
+    if (turnStartMs !== undefined) lastTurnMs = now - turnStartMs;
     const tokens = outputTokens(event.message);
     if (firstTokenMs !== undefined && tokens > 0) {
       const elapsed = now - firstTokenMs;
@@ -2921,6 +2956,7 @@ export default function footerExtension(pi: ExtensionAPI): void {
     // A rate and its calibration belong to the model that produced them.
     lastRate = undefined;
     lastTtftMs = undefined;
+    lastTurnMs = undefined;
     tokensPerChar = DEFAULT_TOKENS_PER_CHAR;
     // Choosing a provider after /login saves it as the default.
     chipDefaults = readChipDefaults(ctx.cwd);
