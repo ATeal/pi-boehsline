@@ -68,7 +68,7 @@ Git subtrees under [`packages/`](packages), kept verbatim (see [below](#bundled-
 
 ## What it costs
 
-Boehsline adds about 100ms to pi's startup and about 3,000 tokens to the context each conversation starts with, the largest part the canvas tool and its guidelines. Details, a per-extension breakdown and how to rerun it: [docs/benchmarks.md](docs/benchmarks.md).
+Boehsline adds about 100ms to pi's startup and about 2,800 tokens to the context each conversation starts with, the largest part the canvas tool and its guidelines. Details, a per-extension breakdown and how to rerun it: [docs/benchmarks.md](docs/benchmarks.md).
 
 ## Configuration reference
 

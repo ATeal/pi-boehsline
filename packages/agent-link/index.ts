@@ -196,6 +196,15 @@ export default function piMeshExtension(pi: ExtensionAPI) {
   }
 
   // ---- inbound: a peer frame arrived on our socket -------------------------
+  // The agent-link tool is deferred (no context cost in sessions that never
+  // talk to a peer). It's activated, and stays active, the moment it's needed:
+  // an @mention in the prompt or a message from a peer. tool_search can also
+  // find it, so it's turned on below for prompts that ask without an @name.
+  function activateTool(): void {
+    const active = pi.getActiveTools();
+    if (!active.includes("agent-link")) pi.setActiveTools([...active, "agent-link"]);
+  }
+
   function onFrame(frame: any): void {
     if (frame?.type === "control" && frame.action === "rename" && typeof frame.name === "string") {
       selfName = frame.name;
@@ -226,6 +235,7 @@ export default function piMeshExtension(pi: ExtensionAPI) {
     }
 
     // Normal inbound: inject into the live pi session (real-time).
+    activateTool();
     const framed = frameInbound({ who, body: env.body, fromMode: env.fromMode });
 
     const idle = lastCtx?.isIdle?.() ?? true;
@@ -328,6 +338,15 @@ export default function piMeshExtension(pi: ExtensionAPI) {
   pi.on("session_start", async (_e, ctx) => {
     void ensureStarted(ctx);
     installAutocomplete(ctx);
+    // The tool is deferred, so tool_search must be active to find it (the same
+    // lines as Boehsline's lib/tool-search.ts; inline to keep this package
+    // self-contained). Not in child subagents, which stay lean.
+    if (!process.env.PI_SUBAGENT_CHILD) {
+      const active = pi.getActiveTools();
+      if (!active.includes("tool_search") && pi.getAllTools().some((t) => t.name === "tool_search")) {
+        pi.setActiveTools([...active, "tool_search"]);
+      }
+    }
   });
   pi.on("before_agent_start", async (event) => {
     const prompt = event.prompt || "";
@@ -336,6 +355,7 @@ export default function piMeshExtension(pi: ExtensionAPI) {
     if (!peers.length) return;
     const mentions = findAgentMentions(prompt, peers);
     if (!mentions.length) return;
+    activateTool();
     // A hidden message for this run, not a replaced system prompt: a
     // replacement re-renders the prompt from base options, which differs from
     // the transcript's sections and busts the prompt cache on this turn and
@@ -392,6 +412,7 @@ export default function piMeshExtension(pi: ExtensionAPI) {
   pi.registerTool({
     name: "agent-link",
     label: "Agent Link",
+    exposure: "deferred",
     description:
       "Talk to agent sessions running on this machine: list, send, ask and wait, " +
       "reply to a pending ask, or list pending asks. When the user writes @name " +
