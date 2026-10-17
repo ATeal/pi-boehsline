@@ -4,6 +4,8 @@
  * extension with a deferred tool calls this, so it stays reachable whichever
  * of them are loaded. One small declaration (~200 tokens), added once.
  *
+ * Used by subagent, provider-usage, goal and agent-link; test/deferred-tools
+ * checks every deferred tool in the manifest stays reachable without subagent.
  * Skipped in child subagents (PI_SUBAGENT_CHILD), which stay lean, and when
  * tool_search isn't available at all (e.g. excluded by --tools).
  */

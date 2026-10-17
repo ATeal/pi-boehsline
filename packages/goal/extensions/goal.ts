@@ -45,6 +45,7 @@ import {
   timeLeft,
   tokenize,
 } from "../lib/core.ts";
+import { activateToolSearch } from "../../../lib/tool-search.ts";
 
 const DEFAULT_BUDGET_MS = 30 * 60_000;
 const GRACE_MS = 3 * 60_000;
@@ -334,16 +335,8 @@ export default function (pi: ExtensionAPI) {
 
   // ── start_goal tool ──
 
-  // start_goal is deferred, so tool_search must be active to reach it (the
-  // same few lines as Boehsline's lib/tool-search.ts; inline so this package
-  // stays self-contained). Not in child subagents, which stay lean.
-  pi.on("session_start", () => {
-    if (process.env.PI_SUBAGENT_CHILD) return;
-    const active = pi.getActiveTools();
-    if (active.includes("tool_search")) return;
-    if (!pi.getAllTools().some((t) => t.name === "tool_search")) return;
-    pi.setActiveTools([...active, "tool_search"]);
-  });
+  // start_goal is deferred, so tool_search must be active to reach it.
+  activateToolSearch(pi);
 
   pi.registerTool({
     name: "start_goal",

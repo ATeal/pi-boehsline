@@ -27,6 +27,7 @@ import {
 import path from "node:path";
 import { appendFileSync, existsSync, mkdirSync, renameSync, writeFileSync, unlinkSync } from "node:fs";
 import type { Server } from "node:net";
+import { activateToolSearch } from "../../lib/tool-search.ts";
 
 // Debug logging: enabled by env PI_AGENT_LINK_DEBUG or the sentinel /tmp/pi-agent-link-debug.on
 // (pi may not propagate env to extensions in all modes, so the sentinel is handy).
@@ -338,16 +339,9 @@ export default function piMeshExtension(pi: ExtensionAPI) {
   pi.on("session_start", async (_e, ctx) => {
     void ensureStarted(ctx);
     installAutocomplete(ctx);
-    // The tool is deferred, so tool_search must be active to find it (the same
-    // lines as Boehsline's lib/tool-search.ts; inline to keep this package
-    // self-contained). Not in child subagents, which stay lean.
-    if (!process.env.PI_SUBAGENT_CHILD) {
-      const active = pi.getActiveTools();
-      if (!active.includes("tool_search") && pi.getAllTools().some((t) => t.name === "tool_search")) {
-        pi.setActiveTools([...active, "tool_search"]);
-      }
-    }
   });
+  // The tool is deferred, so tool_search must be active to find it.
+  activateToolSearch(pi);
   pi.on("before_agent_start", async (event) => {
     const prompt = event.prompt || "";
     if (!prompt || isInboundPeerPrompt(prompt)) return;
