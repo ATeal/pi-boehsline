@@ -1,5 +1,5 @@
 /**
- * Smoke test — loads ../web.ts with a stubbed pi API, verifies both tools
+ * Smoke test — loads ../index.ts with a stubbed pi API, verifies both tools
  * register, and runs web_fetch end-to-end. No pi required.
  *   node smoke.ts
  */
@@ -9,7 +9,7 @@ import { fileURLToPath } from "node:url";
 
 const here = dirname(fileURLToPath(import.meta.url));
 
-// stub pi's module so web.ts imports resolve outside the agent
+// stub pi's module so the web extension's imports resolve outside the agent
 const stubDir = join(here, "node_modules", "@earendil-works", "pi-coding-agent");
 mkdirSync(stubDir, { recursive: true });
 writeFileSync(
@@ -19,7 +19,7 @@ writeFileSync(
 writeFileSync(join(stubDir, "stub.mjs"), "export const getAgentDir = () => process.cwd();");
 
 try {
-	const mod = await import(`${here}/../web.ts`);
+	const mod = await import(`${here}/../index.ts`);
 	const tools: any[] = [];
 	let onSessionStart: ((event: unknown, ctx: unknown) => void) | undefined;
 	await mod.default({
