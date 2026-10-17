@@ -32,6 +32,18 @@ left out:
 { "hidden": ["boot"], "modes": { "context": "percent" }, "order": ["git", "dir", "..."] }
 ```
 
+The directory chip shows the folder's name, or `~` at home. To rename or hide
+it in particular folders, add `dirNames` to `footer.json` by hand (exact
+directories, `~` allowed; an empty name hides the chip; the full-path mode
+ignores it). `/footer` keeps it when it saves:
+
+```json
+{ "dirNames": { "~/Code/dotfiles": ".", "~/Documents/Notes": "" } }
+```
+
+Settings that belong to a chip (Git condition, Context threshold, Copilot OOO
+days) sit indented under it.
+
 Reopening `/footer` keeps the session's unsaved changes; a new session starts
 from the saved file. A saved mode is where each session starts; clicking a chip
 still flips it, for that session only. Chips added later start shown, in their default mode, after

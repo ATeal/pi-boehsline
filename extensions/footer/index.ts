@@ -166,6 +166,12 @@ export interface FooterConfig {
   copilotOoo?: string;
   /** When copilotOoo was set; provider-usage ignores it once a new Copilot cycle starts. */
   copilotOooSetAt?: string;
+  /**
+   * Names for the dir chip by exact directory, as written in footer.json
+   * ("~/x" allowed): `{ "~/Code/dotfiles": ".", "~/Notes": "" }`. An empty
+   * name hides the chip there. Not editable in /footer; kept when it saves.
+   */
+  dirNames?: Record<string, string>;
 }
 
 /** Context threshold choices for /footer, "always" first (the default). */
@@ -252,7 +258,7 @@ export function footerConfigPath(): string {
 
 /** The saved config; unknown ids, unknown modes and a missing or broken file fall back to defaults. */
 export function readFooterConfig(): FooterConfig {
-  let parsed: { hidden?: unknown; modes?: unknown; order?: unknown } & Partial<Record<ConditionKey, unknown>> = {};
+  let parsed: { hidden?: unknown; modes?: unknown; order?: unknown; dirNames?: unknown } & Partial<Record<ConditionKey, unknown>> = {};
   try {
     parsed = JSON.parse(readFileSync(footerConfigPath(), "utf8")) ?? {};
   } catch {
@@ -277,6 +283,12 @@ export function readFooterConfig(): FooterConfig {
       config[row.key] = value;
     }
   }
+  if (parsed.dirNames && typeof parsed.dirNames === "object" && !Array.isArray(parsed.dirNames)) {
+    const names = Object.entries(parsed.dirNames as Record<string, unknown>).filter(
+      (entry): entry is [string, string] => typeof entry[1] === "string",
+    );
+    if (names.length > 0) config.dirNames = Object.fromEntries(names);
+  }
   if (config.copilotOoo) {
     const setAt = (parsed as { copilotOooSetAt?: unknown }).copilotOooSetAt;
     if (typeof setAt === "string") config.copilotOooSetAt = setAt;
@@ -297,6 +309,7 @@ export function writeFooterConfig(config: FooterConfig): void {
     modes?: Partial<Record<FooterChipId, string>>;
     order?: FooterLineChipId[];
     copilotOooSetAt?: string;
+    dirNames?: Record<string, string>;
   } & Partial<Record<ConditionKey, string>> = {
     hidden: FOOTER_CHIPS.map((chip) => chip.id).filter((id) => config.hidden.has(id)),
   };
@@ -310,6 +323,7 @@ export function writeFooterConfig(config: FooterConfig): void {
     if (value && value !== row.values[0]) out[row.key] = value;
   }
   if (out.copilotOoo && config.copilotOooSetAt) out.copilotOooSetAt = config.copilotOooSetAt;
+  if (config.dirNames && Object.keys(config.dirNames).length > 0) out.dirNames = config.dirNames;
   mkdirSync(agentDir(), { recursive: true });
   writeFileSync(footerConfigPath(), `${JSON.stringify(out, null, 2)}\n`);
 }
@@ -322,6 +336,7 @@ export function sameFooterConfig(a: FooterConfig, b: FooterConfig): boolean {
       modes: FOOTER_CHIPS.map((chip) => chipMode(config, chip.id) ?? ""),
       order: config.order,
       conditions: CONDITION_ROWS.map((row) => config[row.key] ?? row.values[0]),
+      dirNames: config.dirNames ?? {},
     });
   return key(a) === key(b);
 }
@@ -1067,6 +1082,23 @@ function formatMs(ms: number): string {
 function agentDir(): string {
   // Resolved per call, not at module load, so a HOME change is picked up.
   return process.env.PI_CODING_AGENT_DIR || join(homedir(), ".pi", "agent");
+}
+
+/**
+ * The dir chip's text. Full path: `~/x`. Otherwise a name from footer.json's
+ * dirNames for this exact directory ("" hides the chip), "~" at home, and the
+ * basename anywhere else.
+ */
+export function dirLabel(cwd: string, fullPath: boolean, dirNames: Record<string, string> = {}): string {
+  if (fullPath) return tildePath(cwd);
+  const home = homedir();
+  const expand = (path: string) => (path === "~" || path.startsWith("~/") ? home + path.slice(1) : path);
+  const strip = (path: string) => (path.length > 1 ? path.replace(/\/+$/, "") : path);
+  for (const [path, name] of Object.entries(dirNames)) {
+    if (strip(expand(path)) === strip(cwd)) return name;
+  }
+  if (strip(cwd) === home) return "~";
+  return basename(cwd);
 }
 
 /** `$HOME/x` → `~/x`, so a notification names a path the way settings do. */
@@ -1858,7 +1890,7 @@ export default function footerExtension(pi: ExtensionAPI): void {
             return theme.fg("dim", `⏲ ${minutes}m`);
           };
           const chips: Array<readonly [Exclude<FooterChipId, "name" | "statuses">, string]> = [
-            ["dir", color(BLUE, showFullPath ? tildePath(ctx.cwd) : basename(ctx.cwd))],
+            ["dir", ((label) => (label ? color(BLUE, label) : ""))(dirLabel(ctx.cwd, showFullPath, footerConfig.dirNames))],
             ["git", gitChip.text],
             ["provider", color(BRIGHT_YELLOW, shortProvider(provider))],
             [
@@ -2408,7 +2440,8 @@ export default function footerExtension(pi: ExtensionAPI): void {
               item,
               {
                 id: row.key,
-                label: row.label.padEnd(labelWidth),
+                // Indented: a setting of the chip above, not a chip of its own.
+                label: `  ${row.label}`.padEnd(labelWidth),
                 description: row.description,
                 currentValue: footerConfig[row.key] ?? row.values[0],
                 values: [...row.values],

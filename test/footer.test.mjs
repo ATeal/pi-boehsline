@@ -10,7 +10,7 @@
 
 import assert from "node:assert/strict";
 import { existsSync, mkdtempSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
-import { tmpdir } from "node:os";
+import { homedir, tmpdir } from "node:os";
 import path from "node:path";
 import test, { afterEach } from "node:test";
 
@@ -25,6 +25,7 @@ import { VERSION as RUNNING_PI_VERSION } from "@earendil-works/pi-coding-agent";
 import footer, {
   CHIP_MODES,
   contextAboveThreshold,
+  dirLabel,
   gitChipHidden,
   DEFAULT_CHIP_ORDER,
   FOOTER_CHIPS,
@@ -783,6 +784,33 @@ test("Copilot OOO days read from footer.json and expire with the month", async (
     assert.equal(readFooterConfig().copilotOoo, undefined, "set in an earlier cycle");
     writeFileSync(path.join(dir, "footer.json"), JSON.stringify({ copilotOoo: "99" }));
     assert.equal(readFooterConfig().copilotOoo, undefined, "out of range");
+  });
+});
+
+test("the dir chip: ~ at home, names from dirNames ('' hides), basename elsewhere", () => {
+  const home = homedir();
+  const names = { "~/Code/dotfiles": ".", "~/Documents/Wiki/": "", "/opt/work": "work" };
+  assert.equal(dirLabel(home, false), "~");
+  assert.equal(dirLabel(`${home}/`, false), "~");
+  assert.equal(dirLabel(`${home}/Code/app`, false), "app");
+  assert.equal(dirLabel(`${home}/Code/dotfiles`, false, names), ".");
+  assert.equal(dirLabel(`${home}/Documents/Wiki`, false, names), "", "a trailing slash in the key still matches");
+  assert.equal(dirLabel(`${home}/Documents/Wiki/daily`, false, names), "daily", "exact directory only");
+  assert.equal(dirLabel("/opt/work", false, names), "work");
+  assert.equal(dirLabel(`${home}/Code/dotfiles`, true, names), "~/Code/dotfiles", "full path ignores names");
+  assert.equal(dirLabel(home, true), "~");
+});
+
+test("dirNames survives a /footer save; non-string names are dropped", async () => {
+  await withAgentDir(async (dir) => {
+    writeFileSync(path.join(dir, "footer.json"), JSON.stringify({ dirNames: { "~/a": ".", "~/b": "", "~/c": 3 } }));
+    const config = readFooterConfig();
+    assert.deepEqual(config.dirNames, { "~/a": ".", "~/b": "" });
+    config.hidden.add("rate");
+    writeFooterConfig(config);
+    const saved = JSON.parse(readFileSync(path.join(dir, "footer.json"), "utf8"));
+    assert.deepEqual(saved.dirNames, { "~/a": ".", "~/b": "" });
+    assert.deepEqual(saved.hidden, ["rate"]);
   });
 });
 
@@ -1855,6 +1883,8 @@ test("/footer's Git condition row sits under Git and saves with Alt+S", async ()
     const shown = list.render(140).map(strip);
     const at = shown.findIndex((line) => /^(→ |  )Git {2,}/.test(line));
     assert.match(shown[at + 1], /Git condition\s+always/);
+    // Indented under its chip: a setting of Git, not a chip of its own.
+    assert.match(shown[at + 1], /^ {4}Git condition/);
     list.handleInput("j");
     list.handleInput("j"); // Directory → Git → Git condition
     assert.match(ui.raw()[0], /\x1b\[5m.*master/, "previews the git chip");
