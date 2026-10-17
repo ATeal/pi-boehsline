@@ -72,7 +72,9 @@ import {
 } from "@earendil-works/pi-tui";
 
 const GIT_TTL_MS = 5_000;
-const GIT_TIMEOUT_MS = 1_000;
+// A busy machine can take seconds; a timeout keeps the last state rather than
+// blanking it, so this only bounds how stale the chip can get.
+const GIT_TIMEOUT_MS = 3_000;
 
 /**
  * pi-claude-link registers this process in Claude Code's peer registry and
@@ -740,12 +742,15 @@ class GitStatusCache {
 
   private async refresh(cwd: string, requestRender: () => void): Promise<void> {
     this.inFlight = true;
-    let next = EMPTY_GIT;
+    // A timeout or a failed spawn says nothing about the repo: keep what we had.
+    let next = this.state;
     try {
       // Both run concurrently: rev-list is wasted work outside a repo or
       // without an upstream, but it costs nothing next to a serial round trip.
       const [status, revList, originHead] = await Promise.all([
-        this.pi.exec("git", ["status", "--porcelain=v1"], { cwd, timeout: GIT_TIMEOUT_MS }),
+        // Submodules' own uncommitted edits are skipped (a moved submodule
+        // still shows): checking inside each one cost ~1.1s of dotfiles' 1.6s.
+        this.pi.exec("git", ["status", "--porcelain=v1", "--ignore-submodules=dirty"], { cwd, timeout: GIT_TIMEOUT_MS }),
         this.pi.exec("git", ["rev-list", "--left-right", "--count", "@{upstream}...HEAD"], {
           cwd,
           timeout: GIT_TIMEOUT_MS,
@@ -768,9 +773,12 @@ class GitStatusCache {
             ? { defaultBranch: originHead.stdout.trim().replace(/^origin\//, "") }
             : {}),
         };
+      } else if (!status.killed) {
+        // git answered: not a repository (or not one we can read).
+        next = EMPTY_GIT;
       }
     } catch {
-      next = EMPTY_GIT;
+      // exec itself failed: keep the last state.
     } finally {
       this.inFlight = false;
     }

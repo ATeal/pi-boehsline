@@ -136,7 +136,9 @@ async function mount(overrides = {}) {
     exec: async (command, args, options) => {
       execCalls.push({ command, args, options });
       const stdout = args[0] === "rev-list" ? revList : args[0] === "symbolic-ref" ? originHead : porcelain;
-      return { stdout, stderr: "", code: gitCode, killed: false };
+      const result = { stdout, stderr: "", code: gitCode, killed: false };
+      // A test can make git time out (killed) or fail mid-session.
+      return overrides.execHook ? { ...result, ...overrides.execHook(args) } : result;
     },
     getThinkingLevel: () => thinkingLevel,
     setThinkingLevel: (level) => {
@@ -447,8 +449,25 @@ test("git runs one porcelain + one rev-list + one origin/HEAD lookup per refresh
   assert.deepEqual(ui.execCalls.map((call) => call.args[0]).sort(), ["rev-list", "status", "symbolic-ref"]);
   assert.deepEqual(
     ui.execCalls.find((call) => call.args[0] === "status").args,
-    ["status", "--porcelain=v1"],
+    ["status", "--porcelain=v1", "--ignore-submodules=dirty"],
   );
+});
+
+test("a git status that times out keeps the last state instead of dropping the dirty marker", async () => {
+  let timeOut = false;
+  const ui = await mount({ execHook: () => (timeOut ? { stdout: "", code: null, killed: true } : {}) });
+  assert.match((await ui.settled())[0], /^dotfiles master\* /);
+  timeOut = true;
+  const realNow = Date.now;
+  Date.now = () => realNow() + 6_000; // past the 5s cache
+  try {
+    ui.plain();
+    await new Promise((resolve) => setTimeout(resolve, 20));
+    assert.ok(ui.execCalls.length > 3, "refreshed");
+    assert.match(ui.plain()[0], /^dotfiles master\* /, "still dirty, not a bare branch");
+  } finally {
+    Date.now = realNow;
+  }
 });
 
 test("non-repo directories drop the git segments", async () => {
