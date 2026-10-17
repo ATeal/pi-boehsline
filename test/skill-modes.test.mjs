@@ -27,6 +27,10 @@ const POTETO = skill(
 const PLAIN = skill("plain", "description: not a mode\n");
 const SKILLS = [POTETO, PLAIN];
 
+// An empty user config, so whether the opt-in is on comes only from
+// BOEHSLINE_ENABLE below, not the machine's own boehsline.json.
+process.env.BOEHSLINE_CONFIG = path.join(dir, "boehsline.json");
+
 async function load(enabled = true) {
   if (enabled) process.env.BOEHSLINE_ENABLE = "skill-modes";
   else delete process.env.BOEHSLINE_ENABLE;
