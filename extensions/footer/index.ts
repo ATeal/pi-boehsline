@@ -162,6 +162,10 @@ export interface FooterConfig {
   contextMin?: string;
   /** "unless clean default" hides the git chip on a clean default branch; absent means always. */
   gitWhen?: string;
+  /** "unless default" hides the chip while it matches settings.json's default; absent means always. */
+  providerWhen?: string;
+  modelWhen?: string;
+  thinkingWhen?: string;
   /** Copilot workdays off still ahead this cycle ("0"–"15"); provider-usage reads it for the ↓%/d allowance. */
   copilotOoo?: string;
   /** When copilotOoo was set; provider-usage ignores it once a new Copilot cycle starts. */
@@ -188,6 +192,27 @@ export const CONDITION_ROWS = [
     label: "Git condition",
     description: "Hide the git chip on the default branch when it is clean, with nothing to push or pull.",
     values: ["always", "unless clean default"],
+  },
+  {
+    key: "providerWhen",
+    chip: "provider",
+    label: "Provider condition",
+    description: "Hide the provider chip while it is the default provider in settings.json.",
+    values: ["always", "unless default"],
+  },
+  {
+    key: "modelWhen",
+    chip: "model",
+    label: "Model condition",
+    description: "Hide the model chip while it is the default model in settings.json.",
+    values: ["always", "unless default"],
+  },
+  {
+    key: "thinkingWhen",
+    chip: "thinking",
+    label: "Thinking condition",
+    description: "Hide the thinking chip while it is the default thinking level in settings.json (pi's medium when unset).",
+    values: ["always", "unless default"],
   },
   {
     key: "contextMin",
@@ -339,6 +364,55 @@ export function sameFooterConfig(a: FooterConfig, b: FooterConfig): boolean {
       dirNames: config.dirNames ?? {},
     });
   return key(a) === key(b);
+}
+
+/** What a new session starts on: settings.json's defaults, a project's .pi/settings.json first. */
+export interface ChipDefaults {
+  provider?: string;
+  model?: string;
+  thinking: string;
+}
+
+/** pi's thinking level when settings.json names none (DEFAULT_THINKING_LEVEL). */
+const PI_DEFAULT_THINKING = "medium";
+
+/**
+ * The defaults the provider/model/thinking conditions compare against. Read
+ * from the files rather than pi's SettingsManager, which may migrate and
+ * write; a missing or broken file just contributes nothing.
+ */
+export function readChipDefaults(cwd: string): ChipDefaults {
+  const read = (file: string): Record<string, unknown> => {
+    try {
+      const parsed: unknown = JSON.parse(readFileSync(file, "utf8"));
+      return parsed && typeof parsed === "object" ? (parsed as Record<string, unknown>) : {};
+    } catch {
+      return {};
+    }
+  };
+  const merged = { ...read(join(agentDir(), "settings.json")), ...read(join(cwd, ".pi", "settings.json")) };
+  const text = (value: unknown) => (typeof value === "string" && value ? value : undefined);
+  return {
+    provider: text(merged.defaultProvider),
+    model: text(merged.defaultModel),
+    thinking: text(merged.defaultThinkingLevel) ?? PI_DEFAULT_THINKING,
+  };
+}
+
+/** Whether a provider/model/thinking chip is hidden by its "unless default" condition. */
+export function defaultChipHidden(
+  chip: "provider" | "model" | "thinking",
+  when: string | undefined,
+  current: { provider?: string; model?: string; thinking?: string },
+  defaults: ChipDefaults,
+): boolean {
+  if (when !== "unless default") return false;
+  if (chip === "provider") return !!defaults.provider && current.provider === defaults.provider;
+  if (chip === "model") {
+    // A model is the default only on the default provider: the same id elsewhere is a different route.
+    return !!defaults.model && current.model === defaults.model && (!defaults.provider || current.provider === defaults.provider);
+  }
+  return current.thinking === defaults.thinking;
 }
 
 /** Minutes until a footer clock label ("2:41p") next comes round, for the idle countdown. */
@@ -727,9 +801,11 @@ class PeerNameCache {
     try {
       // Resolved per read, not at module load, so a HOME change is picked up.
       const file = join(homedir(), ".claude", "sessions", `${process.pid}.json`);
-      const parsed: unknown = JSON.parse(await readFile(file, "utf8"));
-      const name = (parsed as { name?: unknown } | null)?.name;
-      if (typeof name === "string") next = name;
+      const parsed = JSON.parse(await readFile(file, "utf8")) as { name?: unknown; startedAt?: unknown } | null;
+      // A file from before this process started was left by a dead process
+      // with the same pid (a hard exit skips its cleanup): not our name.
+      const stale = typeof parsed?.startedAt === "number" && parsed.startedAt < PROCESS_STARTED_AT - 1_000;
+      if (!stale && typeof parsed?.name === "string") next = parsed.name;
     } catch {
       // No pi-claude-link, no registry, or a half-written file: show nothing.
       next = "";
@@ -1100,6 +1176,9 @@ export function dirLabel(cwd: string, fullPath: boolean, dirNames: Record<string
   if (strip(cwd) === home) return "~";
   return basename(cwd);
 }
+
+/** When this process started, for telling its registry file from a dead predecessor's. */
+const PROCESS_STARTED_AT = Date.now() - process.uptime() * 1000;
 
 /** `$HOME/x` → `~/x`, so a notification names a path the way settings do. */
 function tildePath(path: string): string {
@@ -1631,6 +1710,8 @@ export default function footerExtension(pi: ExtensionAPI): void {
   let updateTimer: ReturnType<typeof setInterval> | undefined;
   /** Dir chip shows the full ~/path instead of the basename when true. */
   let showFullPath = false;
+  // settings.json's defaults for the "unless default" conditions; reread on session start and model switch.
+  let chipDefaults: ChipDefaults = { thinking: PI_DEFAULT_THINKING };
   /** Context chip shows percent-used instead of tokens/window when true. */
   let contextPercent = false;
   /** Provider usage hides elapsed-window ages in a compact combined form by default. */
@@ -1889,15 +1970,32 @@ export default function footerExtension(pi: ExtensionAPI): void {
             idleCountdownShown = true;
             return theme.fg("dim", `⏲ ${minutes}m`);
           };
+          const hideAsDefault = (chip: "provider" | "model" | "thinking") =>
+            defaultChipHidden(
+              chip,
+              footerConfig[`${chip}When`],
+              { provider: ctx.model?.provider, model: ctx.model?.id, thinking: pi.getThinkingLevel() },
+              chipDefaults,
+            );
           const chips: Array<readonly [Exclude<FooterChipId, "name" | "statuses">, string]> = [
-            ["dir", ((label) => (label ? color(BLUE, label) : ""))(dirLabel(ctx.cwd, showFullPath, footerConfig.dirNames))],
+            ["dir", color(BLUE, dirLabel(ctx.cwd, showFullPath, footerConfig.dirNames))],
             ["git", gitChip.text],
-            ["provider", color(BRIGHT_YELLOW, shortProvider(provider))],
+            [
+              "provider",
+              hideAsDefault("provider") ? "" : color(BRIGHT_YELLOW, shortProvider(provider)),
+            ],
             [
               "model",
-              color(BRIGHT_YELLOW, `${routePrefix(provider, ctx.model?.id)}${shortModel(ctx.model?.id, provider)}`),
+              hideAsDefault("model")
+                ? ""
+                : color(BRIGHT_YELLOW, `${routePrefix(provider, ctx.model?.id)}${shortModel(ctx.model?.id, provider)}`),
             ],
-            ["thinking", color(BRIGHT_YELLOW, ctx.model?.reasoning ? shortThinking(pi.getThinkingLevel()) : "")],
+            [
+              "thinking",
+              ctx.model?.reasoning && !hideAsDefault("thinking")
+                ? color(BRIGHT_YELLOW, shortThinking(pi.getThinkingLevel()))
+                : "",
+            ],
             ["bypass", bypassed ? color(BRIGHT_RED, "bypass") : ""],
             // context-length / context-window share one segment (no spaces around "/"),
             // or a single percent when the chip is toggled; hidden below the
@@ -2507,7 +2605,7 @@ export default function footerExtension(pi: ExtensionAPI): void {
         };
         let items = buildItems();
         const makeList = (select?: string) => {
-          const created = new SettingsList(items, Math.min(items.length, 15), listTheme, onChange, close);
+          const created = new SettingsList(items, Math.min(items.length, 22), listTheme, onChange, close);
           if (select) created.selectItem(select);
           return created;
         };
@@ -2584,6 +2682,7 @@ export default function footerExtension(pi: ExtensionAPI): void {
   pi.on("session_start", async (event, ctx) => {
     await updateReady;
     runtimeContext = ctx;
+    chipDefaults = readChipDefaults(ctx.cwd);
     // Session-local toggles reset instead of leaking into the next conversation.
     bypassed = false;
     turnStartMs = undefined;
@@ -2717,6 +2816,8 @@ export default function footerExtension(pi: ExtensionAPI): void {
     lastRate = undefined;
     lastTtftMs = undefined;
     tokensPerChar = DEFAULT_TOKENS_PER_CHAR;
+    // Choosing a provider after /login saves it as the default.
+    chipDefaults = readChipDefaults(ctx.cwd);
     apply(ctx);
   });
   pi.on("session_shutdown", async (_event, ctx) => {

@@ -25,7 +25,9 @@ import { VERSION as RUNNING_PI_VERSION } from "@earendil-works/pi-coding-agent";
 import footer, {
   CHIP_MODES,
   contextAboveThreshold,
+  defaultChipHidden,
   dirLabel,
+  readChipDefaults,
   gitChipHidden,
   DEFAULT_CHIP_ORDER,
   FOOTER_CHIPS,
@@ -39,6 +41,9 @@ const PORCELAIN = "A  staged.ts\n M edited.ts\n?? new.ts\n";
 // Mounts outside withAgentDir still read footer.json (and write the boot log);
 // keep them off the real ~/.pi/agent so hidden chips there can't break tests.
 process.env.PI_CODING_AGENT_DIR = mkdtempSync(path.join(tmpdir(), "pi-agent-dir-default-"));
+// The session-name chip reads ~/.claude/sessions/<pid>.json; a stale file in the
+// real home whose pid this process reuses would put a name in every line.
+process.env.HOME = mkdtempSync(path.join(tmpdir(), "footer-home-default-"));
 
 /** Run one test against a throwaway agent directory (boot log, settings.json). */
 function withAgentDir(fn) {
@@ -799,6 +804,60 @@ test("the dir chip: ~ at home, names from dirNames ('' hides), basename elsewher
   assert.equal(dirLabel("/opt/work", false, names), "work");
   assert.equal(dirLabel(`${home}/Code/dotfiles`, true, names), "~/Code/dotfiles", "full path ignores names");
   assert.equal(dirLabel(home, true), "~");
+});
+
+test("chip defaults come from settings.json, a project's .pi/settings.json first, thinking falling back to medium", async () => {
+  await withAgentDir(async (dir) => {
+    const project = mkdtempSync(path.join(tmpdir(), "footer-project-"));
+    assert.deepEqual(readChipDefaults(project), { provider: undefined, model: undefined, thinking: "medium" }, "no settings at all");
+    writeFileSync(path.join(dir, "settings.json"), JSON.stringify({ defaultProvider: "github-copilot", defaultModel: "claude-opus-5.5", defaultThinkingLevel: "high" }));
+    assert.deepEqual(readChipDefaults(project), { provider: "github-copilot", model: "claude-opus-5.5", thinking: "high" });
+    mkdirSync(path.join(project, ".pi"));
+    writeFileSync(path.join(project, ".pi", "settings.json"), JSON.stringify({ defaultModel: "gpt-6" }));
+    assert.deepEqual(readChipDefaults(project), { provider: "github-copilot", model: "gpt-6", thinking: "high" }, "project overrides per key");
+    writeFileSync(path.join(project, ".pi", "settings.json"), "{ half-written");
+    assert.equal(readChipDefaults(project).model, "claude-opus-5.5", "a broken project file contributes nothing");
+  });
+});
+
+test("'unless default' hides provider, model and thinking only while they match", () => {
+  const defaults = { provider: "github-copilot", model: "claude-opus-5.5", thinking: "medium" };
+  const on = { provider: "github-copilot", model: "claude-opus-5.5", thinking: "medium" };
+  for (const chip of ["provider", "model", "thinking"]) {
+    assert.equal(defaultChipHidden(chip, "unless default", on, defaults), true, chip);
+    assert.equal(defaultChipHidden(chip, "always", on, defaults), false, `${chip}: always`);
+    assert.equal(defaultChipHidden(chip, undefined, on, defaults), false, `${chip}: unset`);
+  }
+  assert.equal(defaultChipHidden("provider", "unless default", { ...on, provider: "openrouter" }, defaults), false);
+  assert.equal(defaultChipHidden("model", "unless default", { ...on, model: "gpt-6" }, defaults), false);
+  assert.equal(defaultChipHidden("model", "unless default", { ...on, provider: "openrouter" }, defaults), false, "same id on another provider is another route");
+  assert.equal(defaultChipHidden("thinking", "unless default", { ...on, thinking: "high" }, defaults), false);
+  assert.equal(defaultChipHidden("provider", "unless default", on, { thinking: "medium" }), false, "no default provider: always shown");
+  assert.equal(defaultChipHidden("model", "unless default", on, { thinking: "medium" }), false, "no default model: always shown");
+});
+
+test("with 'unless default' saved, the footer drops provider/model/thinking at their defaults and shows them once they differ", async () => {
+  await withAgentDir(async (dir) => {
+    writeFileSync(path.join(dir, "settings.json"), JSON.stringify({ defaultProvider: "github-copilot", defaultModel: "claude-opus-5.5", defaultThinkingLevel: "high" }));
+    writeFileSync(path.join(dir, "footer.json"), JSON.stringify({ providerWhen: "unless default", modelWhen: "unless default", thinkingWhen: "unless default" }));
+    const atDefault = await mount();
+    await atDefault.settled();
+    assert.equal(atDefault.plain()[0], "dotfiles master* 41/1m");
+    const elsewhere = await mount({ model: { id: "gpt-6", provider: "openai-codex", reasoning: true }, thinkingLevel: "low" });
+    await elsewhere.settled();
+    assert.match(elsewhere.plain()[0], /^dotfiles master\* \S+ \S+ lo 41\/1m$/, "every one differs, so all three show");
+  });
+});
+
+test("/footer lists the 'unless default' rows indented under provider, model and thinking", async () => {
+  await withAgentDir(async () => {
+    const ui = await mount();
+    const shown = (await openChecklist(ui)).render(140).map(strip);
+    for (const [chip, label] of [["Provider", "Provider condition"], ["Model", "Model condition"], ["Thinking", "Thinking condition"]]) {
+      const at = shown.findIndex((line) => new RegExp(`^(→ |  )${chip} {2,}`).test(line));
+      assert.match(shown[at + 1], new RegExp(`^ {4}${label}\\s+always`), chip);
+    }
+  });
 });
 
 test("dirNames survives a /footer save; non-string names are dropped", async () => {
@@ -1632,6 +1691,13 @@ test("hiding the session name and the status row", async () => {
 });
 
 /** Open /footer against a stub ui.custom; returns the checklist component. */
+/** Move down (or with `key`) until the selected row matches, rather than counting rows. */
+function selectRow(list, pattern, key = "j") {
+  const selected = () => list.render(140).map(strip).find((line) => line.startsWith("→")) ?? "";
+  for (let i = 0; i < 40 && !pattern.test(selected()); i += 1) list.handleInput(key);
+  assert.match(selected(), pattern, `selected ${pattern}`);
+}
+
 async function openChecklist(ui) {
   ui.plain(); // a render records each chip's live value
   let list;
@@ -1738,12 +1804,12 @@ test("/footer stands in an example for a selected chip with nothing to show", as
       for (let i = 0; i < n; i += 1) list.handleInput("\x1b[B");
     };
     assert.doesNotMatch(strip(ui.raw()[0]), / bypass/);
-    down(6); // Bypass (past the Git condition row): not bypassed, so the example shows, red like the real chip, blinking
+    selectRow(list, /^→ Bypass/, "\x1b[B"); // not bypassed, so the example shows, red like the real chip, blinking
     assert.match(ui.raw()[0], /\x1b\[5m\x1b\[4m\x1b\[91mbypass\x1b\[39m\x1b\[24m\x1b\[25m/);
     const beforeContext = strip(ui.raw()[0]).indexOf("bypass");
     ui.click(beforeContext, 0);
     assert.equal(ui.guardianRequests.length, 0, "the stand-in has no click zone");
-    down(9); // Session name (past the threshold and OOO rows): unnamed session, so the example sits at the right end
+    selectRow(list, /^→ Session name/, "\x1b[B"); // unnamed session, so the example sits at the right end
     assert.match(strip(ui.raw()[0]), /session-name$/);
     down(1); // Extension statuses: none, so an example status row appears
     assert.equal(strip(ui.raw().at(-1)), "extension status");
@@ -1825,14 +1891,13 @@ test("/footer reorders with J/K or Shift+arrows, j/k navigate, and the name row 
 
     list.handleInput("j");
     list.handleInput("j");
-    list.handleInput("j"); // past the Git condition row
+    list.handleInput("j"); // Directory → Git → Git condition → Provider
     assert.match(rows().find((line) => line.startsWith("→")), /Provider/, "j moves the selection down");
     list.handleInput("k");
     list.handleInput("k");
     assert.match(rows().find((line) => line.startsWith("→")), /Git/);
 
-    for (let i = 0; i < 14; i += 1) list.handleInput("j"); // down to Session name (past all three condition rows)
-    assert.match(rows().find((line) => line.startsWith("→")), /Session name/);
+    selectRow(list, /^→ Session name/);
     list.handleInput("K");
     assert.match(rows().find((line) => line.startsWith("→")), /Session name/, "name row does not move");
     list.handleInput("\x1b[1;2A"); // Shift+Up on the name row: still nothing to save
@@ -1929,8 +1994,7 @@ test("/footer's Context threshold row sits under Context and saves with Alt+S", 
     const shown = list.render(140).map(strip);
     const at = shown.findIndex((line) => /Context\s+41\/1m/.test(line));
     assert.match(shown[at + 1], /Context threshold\s+always/);
-    for (let i = 0; i < 8; i += 1) list.handleInput("j"); // Directory → … → Context threshold
-    assert.match(list.render(140).map(strip).find((line) => line.startsWith("→")), /Context threshold/);
+    selectRow(list, /^→\s+Context threshold/);
     assert.match(ui.raw()[0], /\x1b\[5m.*41/, "previews the context chip");
     list.handleInput("J"); // not a chip: no move
     assert.match(list.render(140).map(strip).find((line) => line.startsWith("→")), /Context threshold/);

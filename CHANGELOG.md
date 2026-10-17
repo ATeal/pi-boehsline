@@ -6,6 +6,9 @@
 - One `lib/tool-search.ts` helper for every extension with a deferred tool (agent-link and goal had their own copies), and `test/deferred-tools.test.mjs` checks every deferred tool in the manifest stays reachable with subagent turned off.
 - aa-info: reads every page of Artificial Analysis's free `language/models/free` endpoint and nothing else. The legacy `/api/v2/data/llms/models` it read quality, speed and rates from retires on 2026-11-04. The old code read only page 1 of the cost endpoint, so $/task now covers every model AA has priced, not just the first 200 rows. `$/1M` is computed as AA's 3:1 blend; Kimi models count as Moonshot for the peer line.
 - aa-info: a failed refresh backs off instead of retrying on every model switch. It's recorded in the cache as `retryAt`, so every pi sharing the cache holds off for an hour (or a 429's `Retry-After`, if longer), and briefings keep coming from the stale snapshot rather than going blank.
+- footer: `~` for the home directory, and an optional `dirNames` map in `footer.json` that renames the directory chip per folder (`""` hides it). Rows in `/footer` that configure a chip are indented under it, and the list shows up to 22 rows.
+- footer: a "Provider/Model/Thinking condition" under each of those chips; "unless default" hides the chip while it matches settings.json's `defaultProvider`, `defaultModel` or `defaultThinkingLevel`.
+- agent-link removes its `~/.claude/sessions/<pid>.json` on a hard exit too, not only on `session_shutdown`. Print-mode runs that `process.exit` (such as `scripts/bench.mjs`) leaked one file each, and a later process reusing the pid showed it as its session name; the footer now also ignores a registry file older than its process.
 
 ## 0.2.1 — 2026-10-16
 
