@@ -22,7 +22,12 @@ in order:
    summary.
 2. **Thoughtless summary** (`thoughtless.ts`): the flattened text with
    thinking turned down and a 64K output ceiling. See the comment at its top
-   for why pi's default wedges on Opus at xhigh.
+   for why pi's default wedges on Opus at xhigh. Opus 5.5, and any model whose
+   thinking map has no `off` level (Copilot Sonnet 5.5 is `{xhigh, max}`),
+   gets low-effort adaptive thinking instead of `thinking: disabled`, which
+   those models reject. An update may grow the summary by 4,000 characters
+   and the checkpoint is kept at or under 32,000, instead of preserving every
+   earlier bullet until the next compaction cannot re-emit it.
 3. **pi's default**, for models that don't use the Anthropic API.
 
 It also does Claude Code's idle compaction. With `PI_CACHE_RETENTION=long`

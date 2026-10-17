@@ -6,6 +6,13 @@ import {
 	type SessionBeforeCompactEvent,
 } from "@earendil-works/pi-coding-agent";
 import { appendFileLists, fileLists, SUMMARY_FORMAT } from "./replay.ts";
+import {
+	fitSummary,
+	promptSummary,
+	SUMMARY_CHAR_CEILING,
+	summaryBudget,
+	updateSummaryInstruction,
+} from "./summary-budget.ts";
 
 // Compaction without the high-effort thinking tax.
 //
@@ -51,12 +58,23 @@ Do NOT continue the conversation. Do NOT respond to any questions in the convers
 
 const FORMAT = SUMMARY_FORMAT;
 
-const UPDATE_RULES = `Update the existing structured summary with new information. RULES:
-- PRESERVE all existing information from the previous summary
-- ADD new progress, decisions, and context from the new messages
-- MOVE items from "In Progress" to "Done" when completed
-- UPDATE "Next Steps" based on what was accomplished
-- PRESERVE exact file paths, function names, and error messages`;
+
+
+/**
+ * How the summary call should set thinking.
+ * `off: null` cannot disable thinking and falls back to pi, except Opus 5.5.
+ * A map with no `off` key (Copilot Sonnet 5.5) also cannot be sent
+ * `thinking: disabled`; it gets low-effort adaptive thinking instead.
+ */
+export function summaryThinking(model: {
+	id?: string;
+	thinkingLevelMap?: Record<string, string | null> | undefined;
+}): "low-adaptive" | "disabled" | "fallback" {
+	const map = model.thinkingLevelMap;
+	if (map?.off === null) return model.id === "claude-opus-5.5" ? "low-adaptive" : "fallback";
+	if (map && !("off" in map)) return "low-adaptive";
+	return "disabled";
+}
 
 export async function summarizeWithoutThinking(event: SessionBeforeCompactEvent, ctx: ExtensionContext) {
 	const { preparation, signal } = event;
@@ -66,11 +84,15 @@ export async function summarizeWithoutThinking(event: SessionBeforeCompactEvent,
 	// API, returning undefined hands control back to pi's default compaction.
 	if (!model || model.api !== "anthropic-messages") return;
 
-	// `off: null` marks models that reject `thinking: {type: "disabled"}`.
-	// Opus 5.5 is handled explicitly below with low-effort adaptive thinking;
-	// leave other thinking-only models to pi's default compaction.
-	const useLowAdaptiveThinking = model.id === "claude-opus-5.5";
-	if (model.thinkingLevelMap?.off === null && !useLowAdaptiveThinking) return;
+	// `off: null` marks models that reject `thinking: {type: "disabled"}` and
+	// are left to pi, except Opus 5.5, which requires adaptive thinking.
+	// A map that lists levels but has no `off` key rejects disabled thinking
+	// too. Copilot Sonnet 5.5 is `{xhigh, max}` plus forceAdaptiveThinking, and
+	// sending `thinking: {type: "disabled"}` is the 400 that shows up as
+	// "compaction: summary error at 64,000 tokens". That gets low-effort
+	// adaptive thinking, not a fallback.
+	const thinking = summaryThinking(model);
+	if (thinking === "fallback") return;
 
 	const { messagesToSummarize, turnPrefixMessages, previousSummary, tokensBefore, firstKeptEntryId, fileOps } =
 		preparation;
@@ -90,9 +112,13 @@ export async function summarizeWithoutThinking(event: SessionBeforeCompactEvent,
 	const conversation = serializeConversation(messages);
 	if (!conversation.trim()) return;
 
+	const budget = summaryBudget(previousSummary?.length ?? 0);
+	const shownSummary = promptSummary(previousSummary, budget);
 	const prompt = [
 		`<conversation>\n${conversation}\n</conversation>`,
-		previousSummary ? `<previous-summary>\n${previousSummary}\n</previous-summary>\n\n${UPDATE_RULES}` : "",
+		shownSummary
+			? `<previous-summary>\n${shownSummary}\n</previous-summary>\n\n${updateSummaryInstruction(budget)}`
+			: `Keep the whole summary under ${SUMMARY_CHAR_CEILING} characters.`,
 		FORMAT,
 	]
 		.filter(Boolean)
@@ -106,9 +132,10 @@ export async function summarizeWithoutThinking(event: SessionBeforeCompactEvent,
 				messages: [{ role: "user", content: [{ type: "text", text: prompt }], timestamp: Date.now() }],
 			},
 			{
-				// Opus 5.5 rejects disabled thinking with HTTP 400. Keep its required
-				// adaptive thinking at low effort; disable thinking on models that allow it.
-				...(useLowAdaptiveThinking
+				// Opus 5.5 and any model whose thinking map has no `off` level reject
+				// disabled thinking. Keep the required adaptive thinking at low effort;
+				// disable thinking only on models that allow it.
+				...(thinking === "low-adaptive"
 					? { thinkingEnabled: true, effort: "low" }
 					: { thinkingEnabled: false }),
 				maxTokens: MAX_SUMMARY_TOKENS,
@@ -143,7 +170,7 @@ export async function summarizeWithoutThinking(event: SessionBeforeCompactEvent,
 
 		return {
 			compaction: {
-				summary: appendFileLists(summary, lists),
+				summary: fitSummary(appendFileLists(summary, lists), budget),
 				firstKeptEntryId,
 				tokensBefore,
 				usage: response.usage,

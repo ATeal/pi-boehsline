@@ -8,6 +8,8 @@
 // "summarize" turn appended keeps the cached prefix byte-identical, so the
 // history is billed as a cache read (about 1/20th the input price on Claude).
 
+import { SUMMARY_CHAR_CEILING, summaryBudget, updateSummaryInstruction } from "./summary-budget.ts";
+
 /** Entry types that never reach the model, so they can trail the last reply. */
 const INVISIBLE_ENTRY_TYPES = new Set(["custom", "label", "session_info", "usage", "thinking_level_change"]);
 
@@ -223,8 +225,8 @@ export function replayPrompt(options: { previousSummary?: string; customInstruct
 		"[Context checkpoint] Pause the task. Do not call any tools and do not continue the work.",
 		"The older part of this conversation is about to be replaced by a summary. Write that summary now, covering the whole conversation above, including any <latest-turns> transcript (your most recent turns, flattened to text). The most recent messages will stay verbatim after the summary, so put the detail into older work, decisions and constraints.",
 		options.previousSummary
-			? "The conversation already opens with an earlier summary. PRESERVE everything in it, ADD new progress and decisions, MOVE finished items from In Progress to Done, and UPDATE Next Steps."
-			: "",
+			? updateSummaryInstruction(summaryBudget(options.previousSummary.length))
+			: `Keep the whole summary under ${SUMMARY_CHAR_CEILING} characters.`,
 		options.customInstructions ? `Focus: ${options.customInstructions}` : "",
 		"Output ONLY the summary, starting with \"## Goal\".",
 		SUMMARY_FORMAT,

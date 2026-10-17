@@ -15,10 +15,12 @@ import {
   MIN_SUMMARY_ROOM,
   minPercent,
   minTokens,
+  replayPrompt,
   replayTail,
   summaryRoom,
 } from "../extensions/compaction/replay.ts";
-import { summarizeWithoutThinking } from "../extensions/compaction/thoughtless.ts";
+import { fitSummary, SUMMARY_CHAR_CEILING, summaryBudget } from "../extensions/compaction/summary-budget.ts";
+import { summarizeWithoutThinking, summaryThinking } from "../extensions/compaction/thoughtless.ts";
 
 const OPUS = {
   provider: "github-copilot",
@@ -93,18 +95,119 @@ test("thoughtless: Opus 5.5 compacts with low-effort adaptive thinking", async (
   assert.deepEqual(result.compaction.details, { readFiles: ["a.ts"], modifiedFiles: ["b.ts"] });
 });
 
-test("thoughtless: adaptive models that permit it compact with thinking disabled", async () => {
-  const fixture = thoughtlessFixture({ id: "claude-opus-4.8", api: "anthropic-messages", thinkingLevelMap: { xhigh: "xhigh" } });
+test("thoughtless: Sonnet 5.5, whose map has no off level, uses low-effort adaptive thinking", async () => {
+  const fixture = thoughtlessFixture({
+    id: "claude-sonnet-5.5",
+    api: "anthropic-messages",
+    thinkingLevelMap: { xhigh: "xhigh", max: "max" },
+    compat: { forceAdaptiveThinking: true },
+  });
+  await summarizeWithoutThinking(fixture.event, fixture.ctx);
+
+  assert.equal(fixture.calls[0][2].thinkingEnabled, true);
+  assert.equal(fixture.calls[0][2].effort, "low");
+});
+
+test("thoughtless: a thinking map with an off level still disables thinking", async () => {
+  const fixture = thoughtlessFixture({ id: "claude-haiku-5.5", api: "anthropic-messages", thinkingLevelMap: { off: "off", high: "high" } });
   await summarizeWithoutThinking(fixture.event, fixture.ctx);
 
   assert.equal(fixture.calls[0][2].thinkingEnabled, false);
   assert.equal(fixture.calls[0][2].effort, undefined);
 });
 
+test("thoughtless: models with no thinking map compact with thinking disabled", async () => {
+  const fixture = thoughtlessFixture({ id: "claude-sonnet-4.5", api: "anthropic-messages" });
+  await summarizeWithoutThinking(fixture.event, fixture.ctx);
+
+  assert.equal(fixture.calls[0][2].thinkingEnabled, false);
+});
+
 test("thoughtless: models that cannot disable thinking fall back to Pi compaction", async () => {
   const fixture = thoughtlessFixture({ id: "claude-fable-5", api: "anthropic-messages", thinkingLevelMap: { off: null } });
   assert.equal(await summarizeWithoutThinking(fixture.event, fixture.ctx), undefined);
   assert.equal(fixture.calls.length, 0);
+});
+
+test("summaryThinking treats a missing off level as low-effort adaptive", () => {
+  assert.equal(summaryThinking({ id: "claude-sonnet-5.5", thinkingLevelMap: { xhigh: "xhigh", max: "max" } }), "low-adaptive");
+  assert.equal(summaryThinking({ id: "claude-opus-5.5", thinkingLevelMap: { off: null, max: "max" } }), "low-adaptive");
+  assert.equal(summaryThinking({ id: "claude-fable-5", thinkingLevelMap: { off: null } }), "fallback");
+  assert.equal(summaryThinking({ id: "claude-haiku-5.5", thinkingLevelMap: { off: "off" } }), "disabled");
+  assert.equal(summaryThinking({ id: "claude-sonnet-4.5" }), "disabled");
+});
+
+function oversizedSummary() {
+  const done = Array.from({ length: 50 }, (_, i) => `- [x] item ${i} ${"d".repeat(700)}`).join("\n");
+  return [
+    "## Goal",
+    "Ship the checkpoint",
+    "",
+    "### Done",
+    done,
+    "",
+    "## Critical Context",
+    `- ${"c".repeat(8_000)}`,
+    "",
+    "---",
+    "",
+    "**Turn Context (split turn):**",
+    "",
+    "## Original Request",
+    "Do the thing",
+    "",
+    "<read-files>",
+    "src/a.ts",
+    "</read-files>",
+  ].join("\n");
+}
+
+test("summary budget caps growth and keeps the turn block", () => {
+  assert.equal(summaryBudget(0), SUMMARY_CHAR_CEILING);
+  assert.equal(summaryBudget(10_000), 14_000);
+  assert.equal(summaryBudget(52_556), SUMMARY_CHAR_CEILING);
+
+  const summary = oversizedSummary();
+  assert.ok(summary.length > SUMMARY_CHAR_CEILING);
+  const fitted = fitSummary(summary, summaryBudget(summary.length));
+  assert.ok(fitted.length <= SUMMARY_CHAR_CEILING);
+  assert.ok(fitted.includes("**Turn Context (split turn):**"));
+  assert.ok(fitted.includes("<read-files>\nsrc/a.ts\n</read-files>"));
+  assert.ok(fitted.includes("item 49 "));
+  assert.equal(fitted.includes("item 0 "), false);
+});
+
+test("thoughtless: an over-budget previous summary is shortened before the model sees it", async () => {
+  const previous = oversizedSummary();
+  assert.ok(previous.length > SUMMARY_CHAR_CEILING);
+  const fixture = thoughtlessFixture(OPUS);
+  fixture.event.preparation.previousSummary = previous;
+  fixture.ctx.modelRegistry.complete = async (...args) => {
+    fixture.calls.push(args);
+    return {
+      stopReason: "stop",
+      content: [{ type: "text", text: `## Goal\n${"x".repeat(40_000)}` }],
+      usage: { input: 10, output: 5 },
+    };
+  };
+
+  const result = await summarizeWithoutThinking(fixture.event, fixture.ctx);
+  const prompt = fixture.calls[0][1].messages[0].content[0].text;
+  const shown = prompt.split("<previous-summary>\n")[1].split("\n</previous-summary>")[0];
+
+  assert.equal(prompt.includes("PRESERVE all existing information"), false);
+  assert.ok(prompt.includes("32000"));
+  assert.ok(shown.length <= SUMMARY_CHAR_CEILING);
+  assert.ok(shown.includes("**Turn Context (split turn):**"));
+  assert.ok(result.compaction.summary.length <= SUMMARY_CHAR_CEILING);
+  assert.ok(result.compaction.summary.includes("<read-files>"));
+});
+
+test("replay prompt no longer says to preserve everything", () => {
+  const prompt = replayPrompt({ previousSummary: oversizedSummary() });
+  assert.equal(prompt.includes("PRESERVE everything"), false);
+  assert.ok(prompt.includes("32000"));
+  assert.ok(replayPrompt().includes(`under ${SUMMARY_CHAR_CEILING} characters`));
 });
 
 // ---- replay.ts helpers ---------------------------------------------------

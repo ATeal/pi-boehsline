@@ -2,6 +2,11 @@
 
 ## Unreleased
 
+### Fixed
+
+- compaction: a model whose thinking map has no `off` level (Copilot Sonnet 5.5) gets low-effort adaptive thinking instead of `thinking: disabled`, which the API rejects. Opus 5.5 is unchanged. Models with `off: null` other than Opus 5.5 still fall back to pi.
+- compaction: an update may grow the summary by 4,000 characters, and the checkpoint is kept at or under 32,000. The old instruction said to preserve every earlier bullet, so a long session's summary grew until the next compaction had to re-emit it and could hit the output limit. The split-turn block and file lists are kept; the oldest Done bullets are what get dropped.
+
 ### Added
 
 - image-prune (opt-in): pi resends every image in context on every request until compaction, and base64 doesn't compress. Once the visible images pass `thresholdMB` (default 5), one batch of `context_edit` replacements at `turn_end` swaps every image older than the last `keepTurns` (2) user turns for a note with a path the read tool can open; pasted images are saved under `~/.pi/agent/tmp/image-prune/` first. One batch, not one image per turn, so the prompt cache is rewritten once. `/image-prune` shows the images in context; `/image-prune now` forces a batch. Tool result images over `shrinkMinKB` (512 KB) are also re-encoded on arrival to at most `shrinkMaxPx` (1568) and under 512 KB, with a note giving the coordinate scale: earl's 3.3 MB PNG camera photos become ~200 KB JPEGs.

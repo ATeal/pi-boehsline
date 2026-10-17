@@ -25,10 +25,11 @@ import {
 	replayTail,
 	summaryRoom,
 } from "./replay.ts";
+import { fitSummary, summaryBudget } from "./summary-budget.ts";
+import { summarizeWithoutThinking } from "./thoughtless.ts";
 
 /** ctx.ui.setStatus key for the footer chip; footer.ts renders it inline. */
 export const IDLE_COMPACT_STATUS = "idle-compact";
-import { summarizeWithoutThinking } from "./thoughtless.ts";
 
 // Compaction, in one session_before_compact handler (pi runs every handler and
 // keeps the last result, so two handlers would both pay for a summary):
@@ -206,7 +207,7 @@ async function summarizeFromCache(
 		const lists = fileLists(preparation.fileOps);
 		return {
 			compaction: {
-				summary: appendFileLists(summary, lists),
+				summary: fitSummary(appendFileLists(summary, lists), summaryBudget(preparation.previousSummary?.length ?? 0)),
 				firstKeptEntryId: preparation.firstKeptEntryId,
 				tokensBefore: preparation.tokensBefore,
 				usage: response.usage,
