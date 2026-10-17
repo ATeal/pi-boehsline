@@ -741,7 +741,9 @@ export async function runSearchChain(
         tried.push(`${backend}: ${err.message}`);
       } else {
         // A bug, not an outage: say where, don't bench, try the next one.
-        const at = err?.stack?.split("\n").find((line) => line.trim().startsWith("at "))?.trim();
+        // The first frame, as file:line only: the model sees this, and a local path needn't leak.
+        const frame = err?.stack?.split("\n").find((line) => line.trim().startsWith("at "));
+        const at = frame?.match(/([^/\\\s()]+:\d+:\d+)\)?\s*$/)?.[1];
         tried.push(`${backend}: ${err?.name ?? "Error"}: ${err?.message ?? String(e)}${at ? ` (${at})` : ""}`);
       }
       failed.push(backend);

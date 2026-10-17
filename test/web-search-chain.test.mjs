@@ -110,7 +110,7 @@ test("a bug in a backend's parser is reported where it happened and doesn't benc
 		new URL(String(url)).host === "api.search.brave.com" ? Response.json({ web: { results: 5 } }) : ok(url);
 	const { backend, tried } = await runSearchChain("curl follow redirects", {}, deps);
 	assert.equal(backend, "tavily");
-	assert.match(tried[0], /^brave: TypeError: .+ \(.*search\.ts:\d+:\d+\)\)$/);
+	assert.match(tried[0], /^brave: TypeError: .+ \(search\.ts:\d+:\d+\)$/);
 	const { loadConfig } = await import("../extensions/web/providers/config.ts");
 	assert.equal((await loadConfig()).skipUntil.brave, undefined, "not benched");
 });

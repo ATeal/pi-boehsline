@@ -2323,7 +2323,16 @@ export default function canvas(pi: ExtensionAPI) {
         // Its last line usually says why (a port in use, a bad root), so show it.
         let last = "";
         try {
-          last = readFileSync(logPath, "utf8").trim().split("\n").at(-1)?.trim().slice(0, 200) ?? "";
+          // The tail only: the log appends across runs and can grow.
+          const fd = openSync(logPath, "r");
+          try {
+            const size = fstatSync(fd).size;
+            const buf = Buffer.alloc(Math.min(size, 4096));
+            readSync(fd, buf, 0, buf.length, size - buf.length);
+            last = buf.toString("utf8").trim().split("\n").at(-1)?.trim().slice(0, 200) ?? "";
+          } finally {
+            closeSync(fd);
+          }
         } catch {}
         ctx.ui.notify(`canvas: daemon did not start${last ? `: ${last}` : ""}; see ${logPath}`, "error");
         return;
