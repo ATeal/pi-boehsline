@@ -446,12 +446,14 @@ needing the page's own header and origin: Clippy's `POST /s/<id>/clip`,
 which only copies that session's files, tmux follow's `/follow` and
 `/focus`, and talk-back's `/s/<id>/send`, which only queues a message for a
 running session. Anything that can make those requests can type into your
-pi, so the same trust as the terminal applies. `html` sections run in an opaque-origin frame
-(no `allow-same-origin`): they can't touch the page or call the daemon, and
-a small script the daemon adds reports their height and stands in an
-in-memory `localStorage`. `html-plan` still runs same-origin, because its
-runtime keeps answers in `localStorage`. Both have a CSP with
-`connect-src 'none'`. Other local processes are trusted. The page can hold
+pi, so the same trust as the terminal applies. `html` and `html-plan` sections
+run in an opaque-origin frame (no `allow-same-origin`): they can't touch the
+page or call the daemon. Anything served that can run script (html, svg, xml)
+also carries a CSP `sandbox`, so it stays opaque-origin even when a section
+opens it in a popup. Both have a CSP with `connect-src 'none'`. A small script
+the daemon adds to `html` reports its height and stands in an in-memory
+`localStorage`. For `html-plan` it stands in a `localStorage` that the page
+keeps per section, so a plan's answers survive a reload. Other local processes are trusted. The page can hold
 anything the session saw; it is not a redaction layer.
 
 `PI_CANVAS=0` disables everything, `PI_CANVAS_STATUS=0` keeps the tool without

@@ -1132,6 +1132,24 @@ window.addEventListener("message", (e) => {
   for (const f of document.querySelectorAll("iframe.fit")) if (f.contentWindow === e.source) f.style.height = `${Math.min(Math.max(Math.ceil(height), 40), 4000)}px`;
 });
 
+// html-plan answers: each plan frame's whole store, kept here per session and
+// section. Only a plan frame on this page may write, and only its own key.
+const planStoreKey = (sid, secId) => `canvas:plan:${sid}:${secId}`;
+const PLAN_STORE_MAX = 1_000_000;
+window.addEventListener("message", (e) => {
+  const store = e.data?.canvasPlanStore;
+  if (!store || typeof store !== "object") return;
+  for (const f of document.querySelectorAll("iframe.plan")) {
+    if (f.contentWindow !== e.source || !f.dataset.storeKey) continue;
+    const json = JSON.stringify(Object.fromEntries(Object.entries(store).filter(([, v]) => typeof v === "string")));
+    if (json.length > PLAN_STORE_MAX) return;
+    try {
+      localStorage.setItem(f.dataset.storeKey, json);
+    } catch {}
+    return;
+  }
+});
+
 async function sectionBody(id, sec) {
   if (sec.kind === "watch") return renderWatch(sec.data || {});
   const url = `/s/${encodeURIComponent(id)}/f/${encodeURIComponent(sec.file)}?v=${encodeURIComponent(sec.at || "")}`;
@@ -1149,8 +1167,12 @@ async function sectionBody(id, sec) {
       fitFrame(f);
       return f;
     }
-    case "html-plan":
-      return h("iframe", { class: "plan", src: url, sandbox: "allow-scripts allow-same-origin allow-popups allow-modals allow-downloads", allow: "clipboard-write" });
+    case "html-plan": {
+      // Opaque-origin like html: a plan's script can't reach this page. Its
+      // answers come back through planStore (see PLAN_JS in daemon.mjs).
+      const key = planStoreKey(id, sec.id);
+      return h("iframe", { class: "plan", src: url, name: `canvas-store:${localStorage.getItem(key) || "{}"}`, "data-store-key": key, sandbox: "allow-scripts allow-popups allow-popups-to-escape-sandbox allow-modals allow-downloads", allow: "clipboard-write" });
+    }
     case "image":
       return h("img", { class: "shot", src: url, alt: sec.title });
     case "diff":

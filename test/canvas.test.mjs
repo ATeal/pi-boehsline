@@ -15,7 +15,7 @@ import test from "node:test";
 import { fileURLToPath } from "node:url";
 
 import canvasExtension, { ActivityTracker, STATUS_PROMPT, checkChart, compareOptions, normalizeSpec, parseDelimited, diffSkipReason, fileId, filesMarkdown, syncCopies, gitDiff, isSensitivePath, jobsSpec, logTail, looksLikeDiff, makePatch, findingLine, findingTexts, isSectionId, newFindings, parseExtras, shotsMarkdown, agentTraffic, agentsMarkdown, bashExit, runSpec, streamable, tailLines, readPeers, resolvePeerName, tallyFiles, lastReply, sessionInfo, uniichatInfo, lastTurn, normalizeCode, normalizeOptions, normalizeTree, parseLineRange, nextSteps, claimInbox, ackInbox, withoutNextSteps, leftHalfBounds, openTodos, parseStatus, tmuxMeta, todoBoard, turnDigest, upsertSection, worthStatus } from "../extensions/canvas/index.ts";
-import { allowedHost, byteRange, clipTarget, latestClient, listSessions, parseFindings, prune, queueMessage, readAcks, readReply, readWatch, replyPreview, sessionForPane, sessionState, tmuxOf, withKit, parseGitStatus, usageRows, gitInfo, sessionInfoOf } from "../extensions/canvas/daemon.mjs";
+import { allowedHost, byteRange, clipTarget, latestClient, listSessions, parseFindings, prune, queueMessage, readAcks, readReply, readWatch, replyPreview, sessionForPane, sessionState, tmuxOf, withKit, PLAN_JS, SANDBOXED_SECTION_CSP, scriptableType, parseGitStatus, usageRows, gitInfo, sessionInfoOf } from "../extensions/canvas/daemon.mjs";
 
 const msg = (role, content, extra = {}) => ({ type: "message", message: { role, content, ...extra } });
 
@@ -853,6 +853,36 @@ test("clipTarget clips the real file for a copy, a named copy for a diff, else t
   }
 });
 
+test("PLAN_JS: an html-plan keeps its answers through the page, not its own origin", async () => {
+  const { runInNewContext } = await import("node:vm");
+  const posted = [];
+  const parent = { postMessage: (data) => posted.push(data) };
+  const window = { name: 'canvas-store:{"answer":"yes","n":7}', parent };
+  runInNewContext(PLAN_JS, { window, Proxy, Map, Array, JSON, Object, String, setTimeout, clearTimeout });
+  const ls = window.localStorage;
+  assert.equal(window.name, "", "the hand-over is read once and cleared");
+  assert.equal(ls.getItem("answer"), "yes", "starts from what the page saved");
+  assert.equal(ls.getItem("n"), null, "non-string values are dropped");
+  assert.equal(ls.answer, "yes", "property access works like Storage");
+  ls.setItem("q2", "b");
+  ls.q3 = "c";
+  delete ls.answer;
+  assert.equal(ls.length, 2);
+  assert.deepEqual(Object.keys(ls).sort(), ["q2", "q3"]);
+  assert.equal(posted.length, 0, "changes are batched");
+  await new Promise((r) => setTimeout(r, 250));
+  assert.deepEqual(JSON.parse(JSON.stringify(posted)), [{ canvasPlanStore: { q2: "b", q3: "c" } }], "one post with the whole store");
+  window.sessionStorage.setItem("tmp", "1");
+  await new Promise((r) => setTimeout(r, 250));
+  assert.equal(posted.length, 1, "sessionStorage is in memory only");
+});
+
+test("scriptable section types get the sandbox CSP; images, PDFs and video don't", () => {
+  for (const t of ["text/html; charset=utf-8", "image/svg+xml", "application/xhtml+xml", "text/xml"]) assert.ok(scriptableType(t), t);
+  for (const t of ["image/png", "application/pdf", "video/mp4", "text/plain; charset=utf-8", "application/json; charset=utf-8"]) assert.ok(!scriptableType(t), t);
+  assert.match(SANDBOXED_SECTION_CSP, /^default-src[\s\S]*; sandbox allow-scripts allow-popups allow-popups-to-escape-sandbox allow-modals allow-downloads$/);
+});
+
 test("withKit puts the kit and frame script at the top of the head, unless the page opts out", () => {
   const css = ":root{--x:1}";
   const full = withKit("<!doctype html><html><head><title>t</title></head><body>b</body></html>", css);
@@ -1131,14 +1161,22 @@ test("daemon serves pages, state and sections, and refuses bad hosts and paths",
     const sec = await get(port, "/s/s1/f/a.html");
     assert.match(sec.body, /^<!doctype html>\n<style id="canvas-kit">[\s\S]*--c1:[\s\S]*<\/style>\n<script>[\s\S]*canvasFrame[\s\S]*<\/script>\n<p>hi<\/p>$/, "html sections get the kit and frame script");
     assert.match(sec.headers["content-security-policy"], /connect-src 'none'/);
-    assert.equal((await get(port, "/s/s1/f/p.html")).body, "<!doctype html><p>plan</p>", "html-plan is served as is");
+    // Opaque origin however the section is opened (a frame, or an escaped popup).
+    assert.match(sec.headers["content-security-policy"], /; sandbox allow-scripts [^;]*$/);
+    assert.doesNotMatch(sec.headers["content-security-policy"], /allow-same-origin/);
+    const plan = await get(port, "/s/s1/f/p.html");
+    assert.match(plan.body, /^<!doctype html><script>[\s\S]*canvasPlanStore[\s\S]*<\/script>\n<p>plan<\/p>$/, "html-plan gets the store script");
+    assert.match(plan.headers["content-security-policy"], /; sandbox allow-scripts /);
+    assert.doesNotMatch(plan.headers["content-security-policy"], /allow-same-origin/);
     const chart = await get(port, "/s/s1/f/c.chart");
     assert.equal(chart.headers["content-type"], "application/json; charset=utf-8");
     assert.equal(JSON.parse(chart.body).type, "bar");
     assert.equal((await get(port, "/s/s1/f/t.term")).headers["content-type"], "application/json; charset=utf-8");
     for (const f of ["j.jsonv", "s.steps", "b.kanban", "l.timeline"]) assert.equal((await get(port, `/s/s1/f/${f}`)).status, 200, f);
     assert.equal(JSON.parse((await get(port, "/s/s1/f/k.compare")).body).after, "k-after.png");
-    assert.equal((await get(port, "/s/s1/f/k-before.png")).headers["content-type"], "image/png", "compare images are served");
+    const png = await get(port, "/s/s1/f/k-before.png");
+    assert.equal(png.headers["content-type"], "image/png", "compare images are served");
+    assert.doesNotMatch(png.headers["content-security-policy"], /sandbox/, "images can't script, so no sandbox");
     for (const f of ["x.code", "x.tree", "x.options"]) assert.equal((await get(port, `/s/s1/f/${f}`)).headers["content-type"], "application/json; charset=utf-8", f);
     const vid = await get(port, "/s/s1/f/v.mp4");
     assert.equal(vid.headers["content-type"], "video/mp4");

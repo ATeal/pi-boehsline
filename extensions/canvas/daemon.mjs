@@ -86,12 +86,12 @@ const TYPES = {
   ".svg": "image/svg+xml",
 };
 
-// html sections run in an opaque-origin frame (no allow-same-origin), so they
-// can't reach the page or the daemon's routes. html-plan still runs
-// same-origin: its runtime keeps answers in localStorage. For both, the
-// boundary is also this CSP: no fetch/XHR/WebSocket anywhere, and
-// scripts only inline, from here, or from the two CDNs the /artifact pipeline
-// allows. Fonts and styles may load over https.
+// html and html-plan sections run in an opaque-origin frame (no
+// allow-same-origin), so they can't reach the page or the daemon's routes;
+// html-plan keeps its answers through PLAN_JS below instead of real
+// localStorage. The boundary is also this CSP: no fetch/XHR/WebSocket
+// anywhere, and scripts only inline, from here, or from the two CDNs the
+// /artifact pipeline allows. Fonts and styles may load over https.
 export const SECTION_CSP = [
   "default-src 'self'",
   "script-src 'self' 'unsafe-inline' https://cdn.jsdelivr.net https://cdn.tailwindcss.com",
@@ -102,6 +102,16 @@ export const SECTION_CSP = [
   "form-action 'none'",
   "frame-ancestors 'self'",
 ].join("; ");
+
+// Anything that can run script (html, svg, xml) also gets CSP sandbox, which
+// makes the document opaque-origin however it is opened: in the page's frame,
+// or in a popup a section opened with allow-popups-to-escape-sandbox. Without
+// it, such a popup could load a section file on the daemon's origin, script a
+// canvas page it opens, and POST /send into pi. Not for images, PDFs or video:
+// a browser's PDF viewer won't run in a sandboxed document, and they can't
+// script anything when opened.
+export const SANDBOXED_SECTION_CSP = `${SECTION_CSP}; sandbox allow-scripts allow-popups allow-popups-to-escape-sandbox allow-modals allow-downloads`;
+export const scriptableType = (type) => /^(text\/html|image\/svg\+xml|application\/xhtml\+xml|text\/xml|application\/xml)\b/.test(type);
 
 const PAGE_CSP = [
   "default-src 'self'",
@@ -488,10 +498,36 @@ function start(){post();try{new ResizeObserver(post).observe(document.body)}catc
 if(document.readyState==="loading")document.addEventListener("DOMContentLoaded",start);else start();
 })();`;
 
+// ── html-plan: answers kept without the page's origin ──────────────────────────
+// A plan's runtime keeps answers in localStorage, but its frame is opaque-origin
+// (see SANDBOXED_SECTION_CSP), which has none. This stands in a Storage that
+// starts from what the page saved for this section (handed over in the frame's
+// name, read once and cleared) and posts every change back to the page, which
+// keeps it in its own localStorage under that section's key. Proxy-backed, so
+// localStorage.x = "1" and localStorage["x"] work as well as setItem.
+export const PLAN_JS = `(function(){
+var P="canvas-store:",init={};
+try{if(String(window.name).indexOf(P)===0){init=JSON.parse(window.name.slice(P.length))||{};window.name=""}}catch(e){}
+function store(persist){var m=new Map();for(var k in init)if(persist&&typeof init[k]==="string")m.set(k,init[k]);var t;
+function save(){if(!persist||window.parent===window)return;clearTimeout(t);t=setTimeout(function(){var o={};m.forEach(function(v,k){o[k]=v});window.parent.postMessage({canvasPlanStore:o},"*")},150)}
+var api={getItem:function(k){k=String(k);return m.has(k)?m.get(k):null},setItem:function(k,v){m.set(String(k),String(v));save()},removeItem:function(k){m.delete(String(k));save()},clear:function(){m.clear();save()},key:function(i){var a=Array.from(m.keys());return i<a.length?a[i]:null}};
+return new Proxy(api,{get:function(o,p){if(p==="length")return m.size;if(typeof p!=="string"||p in o)return o[p];return m.has(p)?m.get(p):undefined},set:function(o,p,v){api.setItem(p,v);return true},deleteProperty:function(o,p){api.removeItem(p);return true},has:function(o,p){return p in o||m.has(String(p))},ownKeys:function(){return Array.from(m.keys())},getOwnPropertyDescriptor:function(o,p){return m.has(String(p))?{value:m.get(String(p)),enumerable:true,configurable:true,writable:true}:undefined}})}
+try{Object.defineProperty(window,"localStorage",{value:store(true),configurable:true})}catch(e){}
+try{Object.defineProperty(window,"sessionStorage",{value:store(false),configurable:true})}catch(e){}
+})();`;
+
+/** An html-plan section with PLAN_JS put in at the top of its head. */
+export function withPlanStore(html) {
+  return injectHead(html, `<script>${PLAN_JS}</script>\n`);
+}
+
 /** An html section with the kit's styles and the frame script put in at the top of its head. */
 export function withKit(html, kitCss) {
   const off = /<meta\b[^>]*\bname=["']?canvas-kit["']?[^>]*\bcontent=["']?off\b/i.test(html);
-  const tag = `${off ? "" : `<style id="canvas-kit">\n${kitCss}</style>\n`}<script>${FRAME_JS}</script>\n`;
+  return injectHead(html, `${off ? "" : `<style id="canvas-kit">\n${kitCss}</style>\n`}<script>${FRAME_JS}</script>\n`);
+}
+
+function injectHead(html, tag) {
   for (const re of [/<head\b[^>]*>/i, /<html\b[^>]*>/i, /^\s*<!doctype\b[^>]*>/i]) {
     const m = html.match(re);
     if (m) return html.slice(0, m.index + m[0].length) + tag + html.slice(m.index + m[0].length);
@@ -729,12 +765,14 @@ function handler(req, res) {
     const path = join(ROOT, parts[1], parts[3]);
     if (!path.startsWith(ROOT + sep) || !existsSync(path)) return send(res, 404, "not found");
     const type = TYPES[extname(path)] || "application/octet-stream";
-    if (STREAMED.has(extname(path))) return streamFile(req, res, path, { "Content-Type": type, "Content-Security-Policy": SECTION_CSP });
+    const csp = scriptableType(type) ? SANDBOXED_SECTION_CSP : SECTION_CSP;
+    if (STREAMED.has(extname(path))) return streamFile(req, res, path, { "Content-Type": type, "Content-Security-Policy": csp });
     if (extname(path) === ".html") {
       const sec = readJson(join(ROOT, parts[1], "sections.json"), []).find((s) => s.file === parts[3]);
-      if (sec?.kind === "html") return send(res, 200, withKit(readFileSync(path, "utf8"), readFileSync(join(HERE, "kit.css"), "utf8")), { "Content-Type": type, "Content-Security-Policy": SECTION_CSP });
+      if (sec?.kind === "html") return send(res, 200, withKit(readFileSync(path, "utf8"), readFileSync(join(HERE, "kit.css"), "utf8")), { "Content-Type": type, "Content-Security-Policy": csp });
+      if (sec?.kind === "html-plan") return send(res, 200, withPlanStore(readFileSync(path, "utf8")), { "Content-Type": type, "Content-Security-Policy": csp });
     }
-    return send(res, 200, readFileSync(path), { "Content-Type": type, "Content-Security-Policy": SECTION_CSP });
+    return send(res, 200, readFileSync(path), { "Content-Type": type, "Content-Security-Policy": csp });
   }
   return send(res, 404, "not found");
 }
