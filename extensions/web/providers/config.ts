@@ -136,8 +136,14 @@ export async function loadConfig(): Promise<WebConfig> {
   let text: string | undefined;
   try {
     text = await readFile(configPath(), "utf8");
-  } catch {
-    // Missing (or unreadable as a file): defaults, and saving may create it.
+  } catch (e) {
+    // Only a missing file is empty, and saving may create it. One that's
+    // there but can't be read (EACCES, EISDIR) must not be overwritten.
+    if ((e as NodeJS.ErrnoException).code !== "ENOENT") {
+      unreadable = `${configPath()} can't be read (${(e as Error).message})`;
+      cached = coerce({});
+      return cached;
+    }
   }
   try {
     cached = coerce(text === undefined ? {} : JSON.parse(text));

@@ -3,7 +3,7 @@
 // rejects, even when the config can't be written.
 
 import assert from "node:assert/strict";
-import { chmodSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
+import { chmodSync, mkdirSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test from "node:test";
@@ -38,4 +38,15 @@ test("markSkip never rejects when web.json can't be written", async () => {
   } finally {
     chmodSync(dir, 0o700);
   }
+});
+
+test("a web.json that exists but can't be read is never overwritten", async () => {
+	const dir = mkdtempSync(join(tmpdir(), "web-config-eisdir-"));
+	mkdirSync(join(dir, "web.json")); // EISDIR on read; EACCES takes the same path
+	process.env.PI_CODING_AGENT_DIR = dir;
+	const fresh = await import(`../extensions/web/providers/config.ts?eisdir=${Date.now()}`);
+	await fresh.loadConfig();
+	assert.match(fresh.configProblem() ?? "", /web\.json can't be read/);
+	await assert.rejects(fresh.mutateConfig((c) => (c.format = "serp")), /not overwritten/);
+	await assert.doesNotReject(fresh.markSkip("exa", 60_000));
 });
