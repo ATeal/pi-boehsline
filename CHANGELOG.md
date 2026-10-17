@@ -4,7 +4,7 @@
 
 ### Changed
 
-- approval-guardian (local change to the subtree): a quoted heredoc fed to something other than a shell (`python3 - <<'EOF'`) is read as literal text, and its comment lines (and trailing comments with no quote in them) don't count as private names. An edit script whose comment says "credentials" no longer needs explicit approval as a private-data read. It's private only when both readings (as one quoted text and as shell words) are, so code that opens a private file is still caught; every bash command is still model-reviewed. The guardian's own tests now run in `npm test`.
+- approval-guardian (local change to the subtree): a quoted heredoc that `python3`/`python` or `node` runs as its program (`python3 - <<'EOF'`, flags without values only) is lexed in that language, and its comments don't count as private names, so an edit script whose `#` comment says "credentials" no longer needs explicit approval as a private-data read. String contents stay evidence, and any other receiver (xargs, tar -T -, cat, `python3 -c`, a script file, Ruby, Perl, anything unknown) keeps the old reading: stdin there may be file names. Private only when both readings agree; every bash command is still model-reviewed. The guardian's own tests now run in `npm test`.
 
 ## 0.2.3 — 2026-10-16
 

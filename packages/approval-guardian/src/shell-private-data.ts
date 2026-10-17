@@ -30,14 +30,15 @@ export function commandReferencesPrivateData(
 	const allowProse =
 		!commandInvokesShell(shellWords) &&
 		!SCRIPT_RUNNER.test(expanded);
-	// With no shell to run it, a quoted heredoc body is literal stdin. Read
-	// that way (one quoted multi-line word, comments dropped) and as shell
-	// words (what its own quotes would split), it is private only when both
-	// readings are: each relaxes something the other can't see (a comment in
-	// script; a multi-line string's prose). Code that reads is caught by both.
-	const heredocs = allowProse && splitQuotedHeredocs(expanded).bodies.length > 0;
+	// A quoted heredoc that an interpreter reads as its program (`python3 -
+	// <<'EOF'`) is code, whose comments can't open a file. Read that way
+	// (comments in that language dropped, no prose relaxation) and as shell
+	// words, it is private only when both readings are. Any other receiver
+	// (xargs, tar -T -, cat, while read, anything unknown) may treat the body
+	// as file names, so it gets the shell-word reading only.
+	const heredocWords = allowProse ? interpreterHeredocWords(expanded) : undefined;
 	const scan = (words: ShellWord[]) => wordsReferencePrivateData(words, cwd, allowProse);
-	return heredocs ? scan(shellWords) && scan(shellEvidenceWords(expanded, true)) : scan(shellWords);
+	return heredocWords ? scan(shellWords) && scan(heredocWords) : scan(shellWords);
 }
 
 function wordsReferencePrivateData(words: ShellWord[], cwd: string, allowProse: boolean): boolean {
@@ -215,14 +216,15 @@ interface ShellWord {
 }
 
 /**
- * Quoted heredocs (`<<'EOF'`, `<<"EOF"`, `<<\EOF`, `<<-` too): the body is
- * literal, so it comes out as one quoted word and the rest of the command is
- * returned without it. Unquoted heredocs expand, so they stay shell words.
+ * Quoted heredocs (`<<'EOF'`, `<<"EOF"`, `<<\EOF`, `<<-` too): each body,
+ * the opening line's text before `<<` (whose command receives it), and the
+ * command without the bodies. Unquoted heredocs expand, so they are left in.
+ * Local Boehsline change; see CHANGELOG.
  */
 const QUOTED_HEREDOC_START = /<<(-?)[ \t]*(?:(['"])([A-Za-z_][\w.-]*)\2|\\([A-Za-z_][\w.-]*))/g;
 
-function splitQuotedHeredocs(command: string): { rest: string; bodies: string[] } {
-	const bodies: string[] = [];
+function splitQuotedHeredocs(command: string): { rest: string; heredocs: { body: string; before: string }[] } {
+	const heredocs: { body: string; before: string }[] = [];
 	let rest = "";
 	let from = 0;
 	QUOTED_HEREDOC_START.lastIndex = 0;
@@ -234,25 +236,104 @@ function splitQuotedHeredocs(command: string): { rest: string; bodies: string[] 
 		const lines = command.slice(lineEnd + 1).split("\n");
 		const close = lines.findIndex((line) => (start[1] ? line.replace(/^\t+/, "") : line) === name);
 		const bodyLines = close === -1 ? lines : lines.slice(0, close);
-		bodies.push(bodyLines.join("\n"));
+		const lineStart = command.lastIndexOf("\n", start.index) + 1;
+		heredocs.push({ body: bodyLines.join("\n"), before: command.slice(Math.max(lineStart, from), start.index) });
 		// Keep the rest of the opening line (`| tee x`, `&& npm test`), drop the body.
 		rest += `${command.slice(from, start.index)} ${command.slice(start.index + start[0].length, lineEnd)}\n`;
 		from = close === -1 ? command.length : lineEnd + 1 + lines.slice(0, close + 1).join("\n").length;
 		QUOTED_HEREDOC_START.lastIndex = from;
 	}
-	return { rest: rest + command.slice(from), bodies };
+	return { rest: rest + command.slice(from), heredocs };
 }
 
-function shellEvidenceWords(command: string, quotedHeredocs = false): ShellWord[] {
-	if (quotedHeredocs) {
-		const { rest, bodies } = splitQuotedHeredocs(command);
-		if (bodies.length > 0) {
-			return [
-				...shellEvidenceWords(rest),
-				...bodies.map((body) => ({ text: body, value: body, quoted: true })),
-			];
+/**
+ * Interpreters that run a heredoc as their program, each with a lexer that
+ * drops that language's comments and keeps everything else, string contents
+ * included: a `#` line inside a Python `'''` string is data that may become a
+ * path, so it stays evidence. Ruby and Perl have too many multi-line string
+ * forms to lex safely here, so they fail closed.
+ */
+const HEREDOC_INTERPRETERS = [
+	{ name: /^python(?:\d+(?:\.\d+)*)?$/, strip: (body: string) => stripComments(body, "python") },
+	{ name: /^node$/, strip: (body: string) => stripComments(body, "js") },
+];
+
+/**
+ * The body without its comments, by a small lexer: strings (Python's
+ * triple-quoted ones, JS template literals) are copied whole, escapes
+ * included; a comment is dropped up to the end of its line (`#`, `//`) or its
+ * close (`/* ... *\/`). An unterminated string runs to the end, which only
+ * keeps more text as evidence.
+ */
+function stripComments(body: string, language: "python" | "js"): string {
+	let out = "";
+	let index = 0;
+	const copyString = (open: string, multiLine: boolean) => {
+		const start = index;
+		index += open.length;
+		while (index < body.length) {
+			if (body[index] === "\\") {
+				index += 2;
+				continue;
+			}
+			if (body.startsWith(open, index)) {
+				index += open.length;
+				break;
+			}
+			if (!multiLine && body[index] === "\n") break;
+			index += 1;
+		}
+		out += body.slice(start, index);
+	};
+	while (index < body.length) {
+		const rest = body.slice(index, index + 3);
+		const char = body[index] ?? "";
+		if (language === "python" && (rest === "'''" || rest === '"""')) copyString(rest, true);
+		else if (language === "js" && char === "`") copyString("`", true);
+		else if (char === "'" || char === '"') copyString(char, false);
+		else if ((language === "python" && char === "#") || (language === "js" && rest.startsWith("//"))) {
+			const end = body.indexOf("\n", index);
+			index = end === -1 ? body.length : end;
+		} else if (language === "js" && rest.startsWith("/*")) {
+			const end = body.indexOf("*/", index + 2);
+			index = end === -1 ? body.length : end + 2;
+			out += " ";
+		} else {
+			out += char;
+			index += 1;
 		}
 	}
+	return out;
+}
+// Flags that take no value and keep the program on stdin. `-c`, `-e`, `-m`,
+// `-r`, a script path or anything else makes stdin data: no heredoc reading.
+const STDIN_PROGRAM_ARGS = new Set(["-", "--", "-u", "-B", "-I", "-E", "-S", "-w"]);
+const ENV_ASSIGNMENT = /^[A-Za-z_][A-Za-z0-9_]*=/;
+
+/**
+ * The shell words of a command whose every quoted heredoc goes to a known
+ * interpreter reading its program from stdin, with each body's comments
+ * dropped and no prose relaxation (the body is unquoted evidence). undefined
+ * when there is none, or when any heredoc goes elsewhere: fail closed.
+ */
+function interpreterHeredocWords(command: string): ShellWord[] | undefined {
+	const { rest, heredocs } = splitQuotedHeredocs(command);
+	if (heredocs.length === 0) return undefined;
+	const bodies: string[] = [];
+	for (const { body, before } of heredocs) {
+		// The command receiving it: the last pipeline or list segment before `<<`.
+		const segment = before.split(/\|\||&&|[;|&(]/).at(-1) ?? "";
+		const words = shellEvidenceWords(segment).map((word) => word.value);
+		while (words.length > 0 && ENV_ASSIGNMENT.test(words[0] ?? "")) words.shift();
+		const [program = "", ...args] = words;
+		const language = HEREDOC_INTERPRETERS.find((entry) => entry.name.test(program.slice(program.lastIndexOf("/") + 1)));
+		if (!language || !args.every((arg) => STDIN_PROGRAM_ARGS.has(arg))) return undefined;
+		bodies.push(language.strip(body));
+	}
+	return [...shellEvidenceWords(rest), ...bodies.map((body) => ({ text: body, value: body, quoted: false }))];
+}
+
+function shellEvidenceWords(command: string): ShellWord[] {
 	const tokens: ShellWord[] = [];
 	let current = "";
 	let value = "";
@@ -349,36 +430,10 @@ interface PatternOptions {
 	relaxExtensions?: boolean;
 }
 
-/**
- * Comments in quoted multi-line text. A whole comment line goes: `// ...`,
- * `# ...`, a block comment opener, or a doc-comment line (a star then a
- * space, a slash or the end of the line). A bare `*name` is not one (Python's
- * `*creds, = open(...)` unpacks). After code, a ` //` or ` #` comment goes
- * only when its text has no quote, backtick or `;`: code can't continue past
- * a string without closing it, so `print("x # y", open("credentials"))` and
- * `open("credentials") # note` still read as code.
- */
-const COMMENT_LINE = /^\s*(?:\/\/|#|\/\*|\*(?:\s|\/|$))/;
-const TRAILING_COMMENT = /(^|\s)(?:\/\/|#)(?:\s[^'"`;]*)?$/;
-
-function dropCommentLines(expression: string): string {
-	if (!expression.includes("\n")) return expression;
-	return expression
-		.split("\n")
-		.filter((line) => !COMMENT_LINE.test(line))
-		.map((line) => line.replace(TRAILING_COMMENT, "$1"))
-		.join("\n");
-}
-
 function pathPatternReferencesPrivateData(
-	rawExpression: string,
+	expression: string,
 	{ allowProse = true, allowRegex = true, relaxExtensions = true }: PatternOptions = {},
 ): boolean {
-	// Where prose is allowed at all (quoted, no shell or script runner), a
-	// comment can't open a file: its words are dropped even when the text
-	// around it is script, so an edit script whose comment says "credentials"
-	// isn't a private read. Local Boehsline change; see CHANGELOG.
-	const expression = allowProse ? dropCommentLines(rawExpression) : rawExpression;
 	// Prose context: multi-line text (quoted multi-line strings) or a single
 	// regex argument. There, words such as "credentials" are prose and
 	// one-character glob fragments are noise. A regex-looking string that also

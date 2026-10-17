@@ -237,11 +237,12 @@ test("does not treat regex, sed, and extension-only globs as private data", () =
 		"rg -n launcher ~/.pi/agent/skills/example/*.md",
 		"grep -n '^// ---------- state\\|^// ---------- credentials' src/index.ts",
 		"python3 - <<'EOF'\nprint(\"\"\"Rotate the secret.\nSee the credentials doc.\"\"\")\nEOF",
-		// An edit script whose private words sit only in comments (whole
-		// lines, or after code with no quote in the comment), blank lines too.
-		"python3 - <<'EOF'\ns = open('src/a.ts').read()\n\ns = s.replace('x', '''  // no session model with credentials):\n  # the secrets tab\n  /* token docs\n   * see credentials\n  y''')\n\nopen('src/a.ts', 'w').write(s)\nEOF\nnpm test",
-		"node <<-'EOF'\n\tconst a = 1; // credentials come later\n\tconsole.log(a);\n\tEOF",
+		// An interpreter's program on stdin: its own comments (whole lines, or
+		// after code with no quote in the comment) aren't reads, blank lines too.
+		"python3 - <<'EOF'\ns = open('src/a.ts').read()\n\n# no session model with credentials\ns = s.replace('x', 'y')  # the secrets tab, .env too\n\nopen('src/a.ts', 'w').write(s)\nEOF\nnpm test",
+		"node <<-'EOF'\n\tconst a = 1; // credentials come later\n\t/* .env\n\t * see credentials\n\t */\n\tconsole.log(a);\n\tEOF",
 		"python3 - <<\\EOF\n# credentials\nprint(1)\nEOF",
+		"cd src && python3 -u - <<'EOF' | tee out.txt\n# .netrc notes\nprint(1)\nEOF",
 		"diff -rq --exclude=.git --exclude=.bundle a b",
 		"cat .env.example",
 	]) {
@@ -267,9 +268,30 @@ test("does not treat regex, sed, and extension-only globs as private data", () =
 		"python3 - <<'EOF'\nprint('x # y', open('credentials').read())\nprint(1)\nEOF",
 		"python3 - <<'EOF'\n*creds, = open('credentials')\nprint(creds)\nEOF",
 		"python3 - <<'EOF'\n# read it\n\nprint(open('credentials').read())\nEOF",
+		// A // line in Python is string data (here, TypeScript being written), not a comment.
+		"python3 - <<'EOF'\ns = s.replace('x', '''\n  // no session model with credentials\n''')\nEOF",
+		"node - <<'EOF'\n# .env is not a JS comment\nEOF",
 		"bash <<'EOF'\n# just a comment\ncat credentials\nEOF",
 		"python3 - <<'EOF'\n# fine\nEOF\ncat credentials",
 		"python3 - <<EOF\n# unquoted heredocs expand\ncat credentials\nEOF",
+		// Stdin as file names, or data for a program from elsewhere: no comments there.
+		"xargs cat <<'EOF'\n# .env\nx\nEOF",
+		"xargs cat <<'EOF'\n// .env\nx\nEOF",
+		"xargs cat <<'EOF'\n* .env\nx\nEOF",
+		"xargs cat <<'EOF'\nREADME.md # .env\nx\nEOF",
+		"xargs cat <<-'EOF'\n\t# .env\n\tEOF",
+		"tar czf /tmp/o.tgz -T - <<'EOF'\n# .netrc\nx\nEOF",
+		"xargs cat <<'EOF'\ncredentials\nx\nEOF",
+		"printf '%s\\n' 'a\n# .env' | sed 's/^# //' | xargs cat",
+		"python3 -c 'import sys; print(open(sys.stdin.read().strip()).read())' <<'EOF'\n# .env\nEOF",
+		"python3 script.py <<'EOF'\n# .env\nEOF",
+		"python3 - x <<'EOF'\n# .env\nEOF",
+		// Comment-shaped lines inside a string are data, which may become a path.
+		// (A bare word there was already missed by the shell-word reading, which
+		// sees the ''' block as a quoted prose string; paths are caught by both.)
+		"python3 - <<'EOF'\np = '''\n# ~/.ssh/id_rsa\n'''.split()[1]\nprint(open(p).read())\nEOF",
+		"python3 - <<'EOF'\ns = 'x # .env'\np = s.split()[2]\nprint(open(p).read())\nEOF",
+		"node - <<'EOF'\nconst p = `\n// .env\n`.split(' ')[1];\nrequire('fs').readFileSync(p.trim());\nEOF",
 		"sed 's/.*//' ~/.netrc",
 		"ls ~/.pi/agent/skills/../*",
 		"cat ~/.pi/agent/usage-budget*",
