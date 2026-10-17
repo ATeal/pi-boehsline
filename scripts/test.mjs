@@ -21,6 +21,11 @@ const SUITE = [
   "packages/scheduler/test/*.test.mjs",
   // The security gate: its own tests, not just the opt-in wrapper's.
   "packages/approval-guardian/tests/*.test.ts",
+  // agent-link's tests that need no pi (reg-test and roundtrip launch one).
+  "packages/agent-link/test/mentions.mjs",
+  "packages/agent-link/test/naming.mjs",
+  "packages/agent-link/test/relay.mjs",
+  "packages/agent-link/test/send-close.mjs",
 ];
 const KEEP = 50;
 
