@@ -21,15 +21,26 @@ export function commandReferencesPrivateData(
 	const expanded = expandHomeReferences(command);
 	if (referencesDynamicPiPath(expanded, cwd)) return true;
 
-	const words = shellEvidenceWords(expanded);
+	const shellWords = shellEvidenceWords(expanded);
 	// A quoted string handed to a shell is a script, so it never gets the
 	// prose relaxations: `bash -c "grep \s credentials"`, `bash <<< '...'`,
 	// `printf '...' | sh`, `subprocess.run("""...""", shell=True)`.
 	// Match the word the shell runs (`ba\sh` is `bash`), not the raw spelling.
 	// A simple assignment counts: `S=sh; $S -c '...'` and `S=/bin/sh; ${S}`.
 	const allowProse =
-		!commandInvokesShell(words) &&
+		!commandInvokesShell(shellWords) &&
 		!SCRIPT_RUNNER.test(expanded);
+	// With no shell to run it, a quoted heredoc body is literal stdin. Read
+	// that way (one quoted multi-line word, comments dropped) and as shell
+	// words (what its own quotes would split), it is private only when both
+	// readings are: each relaxes something the other can't see (a comment in
+	// script; a multi-line string's prose). Code that reads is caught by both.
+	const heredocs = allowProse && splitQuotedHeredocs(expanded).bodies.length > 0;
+	const scan = (words: ShellWord[]) => wordsReferencePrivateData(words, cwd, allowProse);
+	return heredocs ? scan(shellWords) && scan(shellEvidenceWords(expanded, true)) : scan(shellWords);
+}
+
+function wordsReferencePrivateData(words: ShellWord[], cwd: string, allowProse: boolean): boolean {
 	const shellValues = words.map(({ text, value }) =>
 		isWindowsStyle(text) ? text : value,
 	);
@@ -203,7 +214,45 @@ interface ShellWord {
 	quoted: boolean;
 }
 
-function shellEvidenceWords(command: string): ShellWord[] {
+/**
+ * Quoted heredocs (`<<'EOF'`, `<<"EOF"`, `<<\EOF`, `<<-` too): the body is
+ * literal, so it comes out as one quoted word and the rest of the command is
+ * returned without it. Unquoted heredocs expand, so they stay shell words.
+ */
+const QUOTED_HEREDOC_START = /<<(-?)[ \t]*(?:(['"])([A-Za-z_][\w.-]*)\2|\\([A-Za-z_][\w.-]*))/g;
+
+function splitQuotedHeredocs(command: string): { rest: string; bodies: string[] } {
+	const bodies: string[] = [];
+	let rest = "";
+	let from = 0;
+	QUOTED_HEREDOC_START.lastIndex = 0;
+	for (let start = QUOTED_HEREDOC_START.exec(command); start; start = QUOTED_HEREDOC_START.exec(command)) {
+		const name = start[3] ?? start[4] ?? "";
+		const lineEnd = command.indexOf("\n", start.index);
+		if (lineEnd === -1) break;
+		// The body runs to the line that is just the delimiter (tabs allowed with <<-).
+		const lines = command.slice(lineEnd + 1).split("\n");
+		const close = lines.findIndex((line) => (start[1] ? line.replace(/^\t+/, "") : line) === name);
+		const bodyLines = close === -1 ? lines : lines.slice(0, close);
+		bodies.push(bodyLines.join("\n"));
+		// Keep the rest of the opening line (`| tee x`, `&& npm test`), drop the body.
+		rest += `${command.slice(from, start.index)} ${command.slice(start.index + start[0].length, lineEnd)}\n`;
+		from = close === -1 ? command.length : lineEnd + 1 + lines.slice(0, close + 1).join("\n").length;
+		QUOTED_HEREDOC_START.lastIndex = from;
+	}
+	return { rest: rest + command.slice(from), bodies };
+}
+
+function shellEvidenceWords(command: string, quotedHeredocs = false): ShellWord[] {
+	if (quotedHeredocs) {
+		const { rest, bodies } = splitQuotedHeredocs(command);
+		if (bodies.length > 0) {
+			return [
+				...shellEvidenceWords(rest),
+				...bodies.map((body) => ({ text: body, value: body, quoted: true })),
+			];
+		}
+	}
 	const tokens: ShellWord[] = [];
 	let current = "";
 	let value = "";
@@ -300,10 +349,36 @@ interface PatternOptions {
 	relaxExtensions?: boolean;
 }
 
+/**
+ * Comments in quoted multi-line text. A whole comment line goes: `// ...`,
+ * `# ...`, a block comment opener, or a doc-comment line (a star then a
+ * space, a slash or the end of the line). A bare `*name` is not one (Python's
+ * `*creds, = open(...)` unpacks). After code, a ` //` or ` #` comment goes
+ * only when its text has no quote, backtick or `;`: code can't continue past
+ * a string without closing it, so `print("x # y", open("credentials"))` and
+ * `open("credentials") # note` still read as code.
+ */
+const COMMENT_LINE = /^\s*(?:\/\/|#|\/\*|\*(?:\s|\/|$))/;
+const TRAILING_COMMENT = /(^|\s)(?:\/\/|#)(?:\s[^'"`;]*)?$/;
+
+function dropCommentLines(expression: string): string {
+	if (!expression.includes("\n")) return expression;
+	return expression
+		.split("\n")
+		.filter((line) => !COMMENT_LINE.test(line))
+		.map((line) => line.replace(TRAILING_COMMENT, "$1"))
+		.join("\n");
+}
+
 function pathPatternReferencesPrivateData(
-	expression: string,
+	rawExpression: string,
 	{ allowProse = true, allowRegex = true, relaxExtensions = true }: PatternOptions = {},
 ): boolean {
+	// Where prose is allowed at all (quoted, no shell or script runner), a
+	// comment can't open a file: its words are dropped even when the text
+	// around it is script, so an edit script whose comment says "credentials"
+	// isn't a private read. Local Boehsline change; see CHANGELOG.
+	const expression = allowProse ? dropCommentLines(rawExpression) : rawExpression;
 	// Prose context: multi-line text (quoted multi-line strings) or a single
 	// regex argument. There, words such as "credentials" are prose and
 	// one-character glob fragments are noise. A regex-looking string that also

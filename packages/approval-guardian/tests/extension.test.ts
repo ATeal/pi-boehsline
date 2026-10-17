@@ -237,6 +237,11 @@ test("does not treat regex, sed, and extension-only globs as private data", () =
 		"rg -n launcher ~/.pi/agent/skills/example/*.md",
 		"grep -n '^// ---------- state\\|^// ---------- credentials' src/index.ts",
 		"python3 - <<'EOF'\nprint(\"\"\"Rotate the secret.\nSee the credentials doc.\"\"\")\nEOF",
+		// An edit script whose private words sit only in comments (whole
+		// lines, or after code with no quote in the comment), blank lines too.
+		"python3 - <<'EOF'\ns = open('src/a.ts').read()\n\ns = s.replace('x', '''  // no session model with credentials):\n  # the secrets tab\n  /* token docs\n   * see credentials\n  y''')\n\nopen('src/a.ts', 'w').write(s)\nEOF\nnpm test",
+		"node <<-'EOF'\n\tconst a = 1; // credentials come later\n\tconsole.log(a);\n\tEOF",
+		"python3 - <<\\EOF\n# credentials\nprint(1)\nEOF",
 		"diff -rq --exclude=.git --exclude=.bundle a b",
 		"cat .env.example",
 	]) {
@@ -257,6 +262,14 @@ test("does not treat regex, sed, and extension-only globs as private data", () =
 		"cat *.{json,key}",
 		"rg -n 'x' ~/.aws/credentials",
 		"node -e 'const a=require(\"./auth.json\"); console.log(a)'",
+		// Comments are prose; code beside, after, or disguised as them is not.
+		"python3 - <<'EOF'\nx = open('credentials').read() # note\nprint(x)\nEOF",
+		"python3 - <<'EOF'\nprint('x # y', open('credentials').read())\nprint(1)\nEOF",
+		"python3 - <<'EOF'\n*creds, = open('credentials')\nprint(creds)\nEOF",
+		"python3 - <<'EOF'\n# read it\n\nprint(open('credentials').read())\nEOF",
+		"bash <<'EOF'\n# just a comment\ncat credentials\nEOF",
+		"python3 - <<'EOF'\n# fine\nEOF\ncat credentials",
+		"python3 - <<EOF\n# unquoted heredocs expand\ncat credentials\nEOF",
 		"sed 's/.*//' ~/.netrc",
 		"ls ~/.pi/agent/skills/../*",
 		"cat ~/.pi/agent/usage-budget*",

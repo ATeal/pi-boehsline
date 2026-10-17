@@ -15,7 +15,13 @@ import { loadavg } from "node:os";
 import { join } from "node:path";
 
 // Globs, not shell-expanded paths: node --test expands them itself (>= 21).
-const SUITE = ["test/*.test.mjs", "packages/goal/test/*.test.mjs", "packages/scheduler/test/*.test.mjs"];
+const SUITE = [
+  "test/*.test.mjs",
+  "packages/goal/test/*.test.mjs",
+  "packages/scheduler/test/*.test.mjs",
+  // The security gate: its own tests, not just the opt-in wrapper's.
+  "packages/approval-guardian/tests/*.test.ts",
+];
 const KEEP = 50;
 
 const args = process.argv.slice(2);

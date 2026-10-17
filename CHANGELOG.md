@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+### Changed
+
+- approval-guardian (local change to the subtree): a quoted heredoc fed to something other than a shell (`python3 - <<'EOF'`) is read as literal text, and its comment lines (and trailing comments with no quote in them) don't count as private names. An edit script whose comment says "credentials" no longer needs explicit approval as a private-data read. It's private only when both readings (as one quoted text and as shell words) are, so code that opens a private file is still caught; every bash command is still model-reviewed. The guardian's own tests now run in `npm test`.
+
 ## 0.2.3 — 2026-10-16
 
 ### Security
