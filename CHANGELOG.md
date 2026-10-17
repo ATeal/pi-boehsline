@@ -16,6 +16,7 @@
 - footer: a "Rate condition" row under Token rate (`always`, `after 2s`, `5s`, `10s`, `30s`) shows the chip only for turns that run at least that long; a faster turn hides it.
 - footer: a Worktree chip after the directory, `⎇ eert` in a linked git worktree of `eert`, hidden in a main checkout. It reads the `.git` file and `commondir` (no git process), so submodules don't count and a bare repo's worktree names `repo` for `repo.git`. A chip added since `footer.json` was saved now lands after its default predecessor instead of last.
 - `npm test` saves each run's output to `/tmp/test-runs/` (`TEST_RUNS_DIR` overrides), headed with the commit, dirty files and load average, keeping the newest 50, so an intermittent failure can be read afterwards. `npm test -- FILE` runs just those files.
+- **todo**, a new default extension: a shared task list for you and other pi agents at `.pi/TODO.md` (a plain markdown checklist), with locked claims so two agents never own the same task. `todo` tool for agents, `/todo` for you, and one static line above the editor while tasks are open. Nothing is written until a task is added. Moved from an untracked folder in dotfiles, where it only loaded for that one project.
 
 ## 0.2.1 — 2026-10-16
 

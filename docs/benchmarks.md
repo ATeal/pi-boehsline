@@ -70,6 +70,7 @@ Stock pi plus that one extension, opt-ins enabled, median of 5. Single-digit dif
 | ask | 32 | 322 | `ask` |
 | packages/agent-link | 34 | 201 | `tool_search` |
 | packages/goal | 34 | 201 | `tool_search` |
+| todo | 9 | 177 | `todo` |
 | provider-usage | 12 | 201 | `tool_search` |
 | subagent | 5 | 201 | `tool_search` |
 | bg | 5 | 82 |  |
