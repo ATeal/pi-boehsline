@@ -512,8 +512,7 @@ test("a git status that times out keeps the last state instead of dropping the d
   const realNow = Date.now;
   Date.now = () => realNow() + 6_000; // past the 5s cache
   try {
-    ui.plain();
-    await new Promise((resolve) => setTimeout(resolve, 20));
+    await ui.settled();
     assert.ok(ui.execCalls.length > 3, "refreshed");
     assert.match(ui.plain()[0], /^dotfiles master\* /, "still dirty, not a bare branch");
   } finally {
@@ -2031,11 +2030,18 @@ test("border mode (the default): the name moves from the footer into the editor'
   await withAgentDir(async () => {
     assert.equal(CHIP_MODES.name?.[0], "border");
     const ui = await mount({ mode: "tui", sessionName: "my-session", editorFactory: () => fakeEditor() });
-    assert.doesNotMatch(ui.plain()[0], /my-session/, "not in the footer");
     const editor = ui.editorFactory()();
     // Untinted, the name takes the border's own color rather than cyan. (The
     // fake color's braces are visible, so they cost two columns of fill.)
+    // pi renders the editor, then the footer, in one pass.
     assert.equal(editor.renderTopBorder(30, 0), "{──} {my-session} {──────────────}");
+    assert.doesNotMatch(ui.plain()[0], /my-session/, "not in the footer");
+    // A pass where the border didn't draw it (no editor, or too narrow): the footer does.
+    await Promise.resolve();
+    assert.match(ui.plain()[0], / my-session$/, "no editor this pass: the footer shows it");
+    editor.renderTopBorder(6, 0);
+    assert.match(ui.plain()[0], / my-session$/, "too narrow for the border: the footer shows it");
+    await Promise.resolve();
     assert.match(strip(editor.renderTopBorder(40, 2)), /^\{──\} \{my-session\} \{─+ ↑ 2 more ──\}$/);
     // Read per render: pi swaps borderColor for `!` bash mode.
     editor.borderColor = (text) => `!${text}`;
@@ -2054,6 +2060,66 @@ test("border mode: a /color tint paints the name, matching the tinted border", a
     } finally {
       globalThis.__piSessionColor = previous;
     }
+  });
+});
+
+test("the default editor (no other extension's) gets the name, and pi's embedded working status wins while it shows", async () => {
+  await withAgentDir(async () => {
+    const ui = await mount({ mode: "tui", sessionName: "my-session" });
+    const theme = { borderColor: (text) => text, selectList: {} };
+    const editor = ui.editorFactory()({ requestRender() {}, mode: "fullscreen" }, theme, {});
+    assert.equal(editor.constructor.name, "CustomEditor", "pi's own editor, built by the footer");
+    assert.match(strip(editor.renderTopBorder(40, 0)), /^── my-session ─+$/);
+    assert.doesNotMatch(ui.plain()[0], /my-session/);
+    await Promise.resolve();
+    editor.embedWorkingStatus = true;
+    editor.setWorkingStatusIndicator({ renderInBorder: () => "⠋ Working", renderSpinnerInBorder: () => "⠋" });
+    assert.match(strip(editor.renderTopBorder(40, 0)), /^── ⠋ Working ─+$/, "pi's status, not the name");
+    assert.match(ui.plain()[0], / my-session$/, "the name moves to the footer meanwhile");
+  });
+});
+
+test("bypass stays visible when the border can't draw the name", async () => {
+  // An editor that isn't pi-tui's: the wrapper leaves it alone.
+  await withAgentDir(async () => {
+    const ui = await mount({ mode: "tui", sessionName: "my-session", editorFactory: () => ({ render: () => [] }) });
+    await ui.run("bypass");
+    ui.editorFactory()();
+    assert.match(ui.plain()[0], /⚠ my-session$/, "the red name, in the footer");
+  });
+  // Too narrow for the name in the border.
+  await withAgentDir(async () => {
+    const ui = await mount({ mode: "tui", sessionName: "my-session", editorFactory: () => fakeEditor() });
+    await ui.run("bypass");
+    const editor = ui.editorFactory()();
+    // At 8 columns it still fits, cut to "⚠ …"; at 7 it doesn't.
+    assert.match(strip(editor.renderTopBorder(8, 0)), /^\{──\} ⚠ … \{─\}$/);
+    await Promise.resolve();
+    assert.equal(editor.renderTopBorder(7, 0), "pi:7:0");
+    assert.match(ui.plain()[0], /⚠ my-session$/);
+    // Drawn in the border: no chip and no second copy below.
+    await Promise.resolve();
+    assert.match(editor.renderTopBorder(40, 0), /⚠ my-session/);
+    assert.doesNotMatch(ui.plain()[0], /bypass|⚠/);
+  });
+});
+
+test("a throw while collecting border chips leaves the editor working and warns once", async () => {
+  await withAgentDir(async (dir) => {
+    writeFileSync(path.join(dir, "footer.json"), JSON.stringify({ placement: "top border" }));
+    let explode = false;
+    const statuses = new Map();
+    const realGet = statuses.get.bind(statuses);
+    statuses.get = (key) => {
+      if (explode) throw new Error("boom");
+      return realGet(key);
+    };
+    const ui = await mount({ mode: "tui", sessionName: "s", statuses, editorFactory: () => fakeEditor() });
+    const editor = ui.editorFactory()();
+    explode = true;
+    assert.equal(editor.renderTopBorder(30, 0), "{──} {s} {───────────────────────}", "the name alone, no chips");
+    editor.renderTopBorder(30, 0);
+    assert.equal(ui.notices.filter((n) => /chips left out of the editor border: boom/.test(n.message)).length, 1);
   });
 });
 
@@ -2119,8 +2185,7 @@ test("top-border placement: the editor takes the chips that fit and the footer b
   await withAgentDir(async (dir) => {
     writeFileSync(path.join(dir, "footer.json"), JSON.stringify({ placement: "top border" }));
     const ui = await mount({ mode: "tui", sessionName: "my-session", editorFactory: () => fakeEditor() });
-    ui.plain(); // settle git
-    await new Promise((resolve) => setTimeout(resolve, 20));
+    await ui.settled();
     const editor = ui.editorFactory()({ mode: "fullscreen", requestRender() {} });
     // pi renders the editor, then the footer, in one synchronous pass.
     const top = strip(editor.renderTopBorder(120, 0));
@@ -2129,7 +2194,7 @@ test("top-border placement: the editor takes the chips that fit and the footer b
     assert.deepEqual(below, [], "every chip went up, so no footer row");
     // A pass without the editor (a selector in its place) shows them below again.
     await Promise.resolve();
-    assert.equal(ui.plain()[0], "dotfiles master* gh opus hi 41/1m");
+    assert.match(ui.plain()[0], /^dotfiles master\* gh opus hi 41\/1m +my-session$/, "and the name, which the border didn't draw");
     // Too narrow for all: the rest stay below, whole and in order.
     const narrow = strip(editor.renderTopBorder(44, 0));
     const rest = ui.plain(44);
@@ -2153,8 +2218,7 @@ test("bottom-border placement: the chips go in the bottom border before pi's ↓
       return editor;
     };
     const ui = await mount({ mode: "tui", sessionName: "my-session", editorFactory: editorLike });
-    ui.plain();
-    await new Promise((resolve) => setTimeout(resolve, 20));
+    await ui.settled();
     const editor = ui.editorFactory()({ mode: "fullscreen", requestRender() {} });
     const lines = editor.render(120).map(strip);
     const below = ui.plain();
@@ -2178,8 +2242,7 @@ test("top-border chips are clickable in fullscreen, and other clicks reach the e
   await withAgentDir(async (dir) => {
     writeFileSync(path.join(dir, "footer.json"), JSON.stringify({ placement: "top border" }));
     const ui = await mount({ mode: "tui", sessionName: "s", editorFactory: () => ({ ...fakeEditor(), handleMouse: (event) => ({ editorGot: event.y }) }) });
-    ui.plain();
-    await new Promise((resolve) => setTimeout(resolve, 20));
+    await ui.settled();
     const editor = ui.editorFactory()({ mode: "fullscreen", requestRender() {} });
     const top = strip(editor.renderTopBorder(120, 0));
     const x = top.indexOf("dotfiles");

@@ -2095,12 +2095,24 @@ export default function footerExtension(pi: ExtensionAPI): void {
   /** The footer's chips for the editor's top border; set while a footer is mounted. */
   let borderParts: (() => FooterPart[]) | undefined;
   /**
-   * How many leading chips the editor's top border drew in this render pass.
+   * The chips an editor border drew in this render pass, by id and text.
    * The editor renders before the footer, which skips them; a microtask
    * clears it after the pass, so a pass without the editor (a selector or
-   * /footer in its place) shows every chip below.
+   * /footer in its place) shows every chip below. Matched by content, not
+   * position: the two chip lists can differ (the bypass chip shows below
+   * when the border couldn't draw the name).
    */
-  let borderTaken: number | undefined;
+  let borderTaken: string[] | undefined;
+  /**
+   * The editor's top border drew the session name in this render pass;
+   * cleared after it like borderTaken. Without it the footer shows the
+   * name itself (a narrow pane, an editor that isn't pi-tui's, another
+   * extension replacing the wrapper), so a bypass marker is never lost.
+   */
+  let borderNamePainted = false;
+  /** collect() threw inside an editor border once already: warned, don't repeat. */
+  let borderChipsFailed = false;
+  const partKey = (part: { id: string; text: string }) => `${part.id}\u0000${part.text}`;
   /** Click zones on the editor's top and bottom borders, from their last render. */
   let topClickRow: FooterClickRow = {};
   let bottomClickRow: FooterClickRow = {};
@@ -2217,13 +2229,18 @@ export default function footerExtension(pi: ExtensionAPI): void {
   const bypassChipShown = (requestRender: () => void): boolean => {
     if (bypassMarks("chip")) return true;
     if (!bypassMarks("name")) return false;
-    const nameOnScreen = enabled && !footerConfig.hidden.has("name") && !!(pi.getSessionName() || peer.read(requestRender));
+    const nameOnScreen =
+      enabled &&
+      !footerConfig.hidden.has("name") &&
+      !!(pi.getSessionName() || peer.read(requestRender)) &&
+      (nameInFooter() || borderNamePainted);
     return !nameOnScreen;
   };
 
   const nameShownAs = (mode: string): boolean =>
     enabled && !footerConfig.hidden.has("name") && chipMode(footerConfig, "name") === mode;
-  const nameInFooter = () => nameShownAs("footer");
+  // Border mode falls back to the footer whenever the border didn't draw it.
+  const nameInFooter = () => nameShownAs("footer") || (nameShownAs("border") && !borderNamePainted);
 
   /**
    * Put the session name in the editor's top border (the name chip's border
@@ -2247,12 +2264,35 @@ export default function footerExtension(pi: ExtensionAPI): void {
       const piBorder = target.renderTopBorder.bind(editor);
       // Read borderColor per render: pi swaps it for `!` bash mode and thinking levels.
       const borderPaint = (text: string) => (editor.borderColor ?? borderColor)(text);
-      /** The chips for one border, when Placement puts them there. */
-      const chipsFor = (where: "top border" | "bottom border") =>
-        footerConfig.placement === where ? (borderParts?.() ?? []) : [];
+      /**
+       * The chips for one border, when Placement puts them there. collect()
+       * reads git, peer and usage state; a throw here would break the prompt
+       * editor's render, so it falls back to no chips and warns once.
+       */
+      const chipsFor = (where: "top border" | "bottom border"): FooterPart[] => {
+        if (footerConfig.placement !== where) return [];
+        try {
+          return borderParts?.() ?? [];
+        } catch (error) {
+          if (!borderChipsFailed) {
+            borderChipsFailed = true;
+            ctx.ui.notify(`footer: chips left out of the editor border: ${(error as Error).message}`, "warning");
+          }
+          return [];
+        }
+      };
+      /** Mark the name drawn for this render pass, cleared after it. */
+      const markNamePainted = (painted: boolean) => {
+        borderNamePainted = painted;
+        if (painted) {
+          queueMicrotask(() => {
+            borderNamePainted = false;
+          });
+        }
+      };
       /** Note the chips a border drew, for the footer's skip and the click zones. */
       const placeChips = (layout: { taken: number; starts: number[] }, parts: FooterPart[], row: FooterClickRow) => {
-        borderTaken = layout.taken;
+        borderTaken = parts.slice(0, layout.taken).map(partKey);
         queueMicrotask(() => {
           borderTaken = undefined;
         });
@@ -2263,8 +2303,26 @@ export default function footerExtension(pi: ExtensionAPI): void {
           }
         });
       };
+      // pi's CustomEditor can embed the working status (spinner) in this
+      // border; while it shows, pi's border wins and the name and chips go below.
+      const working = editor as unknown as {
+        embedWorkingStatus?: boolean;
+        workingStatusIndicator?: { renderInBorder?(width: number): string };
+      };
+      const workingShown = (width: number) =>
+        !!working.embedWorkingStatus &&
+        typeof working.workingStatusIndicator?.renderInBorder === "function" &&
+        visibleWidth(working.workingStatusIndicator.renderInBorder(Math.max(1, width - 5))) > 0;
       target.renderTopBorder = (width, hidden) => {
+        if (workingShown(width)) {
+          topClickRow = {};
+          markNamePainted(false);
+          return piBorder(width, hidden);
+        }
         const name = nameShownAs("border") ? sessionNameText(ctx.ui.theme, () => tui.requestRender(), borderPaint) : "";
+        // Provisional while the chips are collected (the bypass chip asks
+        // whether the name is on screen); settled below once it's drawn.
+        borderNamePainted = !!name;
         const parts = chipsFor("top border");
         const layout = parts.length ? topBorderLayout(name, parts, hidden, width, borderPaint) : undefined;
         topClickRow = {};
@@ -2272,9 +2330,11 @@ export default function footerExtension(pi: ExtensionAPI): void {
           placeChips(layout, parts, topClickRow);
           // The name starts after "── " and isn't cut when chips fit beside it.
           if (name) topClickRow.name = [3, 3 + visibleWidth(name)];
+          markNamePainted(!!name);
           return layout.line;
         }
         const named = name ? nameTopBorder(name, hidden, width, borderPaint) : undefined;
+        markNamePainted(!!named);
         if (!named) return piBorder(width, hidden);
         // As nameTopBorder fits it: the room left by "── ", " ─" and the indicator.
         const indicator = hidden > 0 ? visibleWidth(` ↑ ${hidden} more `) + 2 : 0;
@@ -2601,8 +2661,14 @@ export default function footerExtension(pi: ExtensionAPI): void {
         render(width: number): string[] {
           if (width <= 0) return [];
           const { parts, samples, statuses, previewStyle, placeholder } = collect();
-          // Top-border placement: the editor drew the first chips this pass.
-          const skip = previewChip ? 0 : (borderTaken ?? 0);
+          // Border placement: leave out the chips the editor drew this pass.
+          const taken = previewChip ? [] : [...(borderTaken ?? [])];
+          const below = parts.filter((part) => {
+            const i = taken.indexOf(partKey(part));
+            if (i === -1) return true;
+            taken.splice(i, 1);
+            return false;
+          });
 
           const nameText = sessionNameText(theme, requestRender);
           if (nameText) samples.set("name", nameText);
@@ -2638,7 +2704,7 @@ export default function footerExtension(pi: ExtensionAPI): void {
             zones = {};
             rowLimit = width;
           };
-          for (const part of parts.slice(skip)) {
+          for (const part of below) {
             // A chip moves down whole when it cannot fit its row's budget —
             // except a chip wider than the terminal itself, which can never
             // fit and is placed anyway (the flush truncates it). A lone chip
