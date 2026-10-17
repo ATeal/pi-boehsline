@@ -88,9 +88,9 @@ test("rejects bad shapes before spawning anything", async () => {
   assert.match(textOf(await run({ tasks: nine })), /\(1-8\)/);
 });
 
-test("background without bg.ts says so instead of hanging", async () => {
+test("background without the bg extension says so instead of hanging", async () => {
   const { run } = mount();
-  assert.match(textOf(await run({ agent: "scout", task: "hi", background: true })), /needs the bg\.ts extension/);
+  assert.match(textOf(await run({ agent: "scout", task: "hi", background: true })), /needs the bg extension \(extensions\/bg\)/);
 });
 
 test("background hands a quoted child command and its labels to bg.ts", async () => {

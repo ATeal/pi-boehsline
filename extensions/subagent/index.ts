@@ -27,11 +27,11 @@ import { activateToolSearch } from "../../lib/tool-search.ts";
 const MAX_TASKS = 8;
 const CONCURRENCY = 4;
 const OUTPUT_CAP = 50 * 1024; // per-task bytes visible to the parent model
-const BG_WAKE_CHARS = 24 * 1024; // background: log tail carried by bg.ts's completion wake
+const BG_WAKE_CHARS = 24 * 1024; // background: log tail carried by the bg extension's completion wake
 
 // Background progress filter (run with `node -e`): child JSONL in, one line per
 // turn out, then a result banner and the final answer. Exit 1 when there is no
-// answer, so bg.ts reports the job as failed.
+// answer, so the bg extension reports the job as failed.
 const PROGRESS_FILTER = `
 let buf = "", turns = 0, final = "";
 const u = { input: 0, cached: 0, output: 0, cost: 0 };
@@ -75,7 +75,7 @@ const Params = Type.Object({
 	cwd: Type.Optional(Type.String({ description: "Working dir override (single mode)" })),
 	model: Type.Optional(Type.String({ description: "Child model override, e.g. haiku" })),
 	background: Type.Optional(
-		Type.Boolean({ description: "Run detached via bg.ts; returns at once, result arrives as a message when done" }),
+		Type.Boolean({ description: "Run detached via the bg extension; returns at once, result arrives as a message when done" }),
 	),
 	agentScope: Type.Optional(
 		Type.Union([Type.Literal("user"), Type.Literal("project"), Type.Literal("both")], {
@@ -252,7 +252,7 @@ export default function (pi: ExtensionAPI) {
 					: { cmd: "pi", args };
 			};
 
-			// Background: hand each child to bg.ts as a shell job (its widget, /bg live
+			// Background: hand each child to the bg extension as a shell job (its widget, /bg live
 			// log, kill, and completion wake). The progress filter turns the child's
 			// JSONL into one line per turn plus the final answer, so the log is
 			// readable live and the wake tail ends with the actual result.
@@ -286,11 +286,11 @@ export default function (pi: ExtensionAPI) {
 							reply: resolve,
 						};
 						pi.events.emit("bg:start", req);
-						if (!req.accepted) resolve(null); // no listener: bg.ts not loaded
+						if (!req.accepted) resolve(null); // no listener: the bg extension isn't loaded
 					});
 					if (reply === null) {
 						return {
-							content: [{ type: "text" as const, text: "background needs the bg.ts extension, which is not loaded. Rerun without background." }],
+							content: [{ type: "text" as const, text: "background needs the bg extension (extensions/bg), which is not loaded. Rerun without background." }],
 							details: { results: [] },
 						};
 					}
