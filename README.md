@@ -52,6 +52,7 @@ Each extension is a folder under [`extensions/`](extensions) with its own README
 | [meeting](extensions/opt-in/meeting/README.md) | Live meeting copilot: questions worth asking, from the transcript | `/meeting`, `/q<N>` |
 | [omlx](extensions/opt-in/omlx/README.md) | Adds models loaded in a local oMLX server to `/model` |  |
 | [sc](extensions/opt-in/sc/README.md) | Attach the newest screenshot from iCloud Downloads | `/sc` |
+| [skill-modes](extensions/opt-in/skill-modes/README.md) | Sticky skill modes: a `mode: true` skill stays on until `/mode off` | `/mode` |
 | [tmux-attention](extensions/opt-in/tmux-attention/README.md) | Highlights the tmux window when pi needs you |  |
 | [update](extensions/opt-in/update/README.md) | `/update` for a mise-pinned pi | `/update` |
 | [wiki-session-log](extensions/opt-in/wiki-session-log/README.md) | Runs a command with the session file after each turn |  |

@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+### Added
+
+- **skill-modes (opt-in).** Sticky skill modes, moved here from Eric's dotfiles: a skill with `mode: true` stays on after `/skill:<name>` and adds a one-line reminder to each run until `/mode off`. Turn it on with `/boehsline enable skill-modes`.
+
 ## 0.2.2 — 2026-10-16
 
 ### Added
