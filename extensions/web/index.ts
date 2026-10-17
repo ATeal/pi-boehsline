@@ -12,6 +12,7 @@ import {
   KEY_ENV,
   loadConfig,
   markSkip,
+  configProblem,
   mutateConfig,
   resolveKey,
   resolveKeyInfo,
@@ -372,7 +373,9 @@ function relative(ms: number): string {
 }
 
 async function statusText(cfg: WebConfig): Promise<string> {
+  const problem = configProblem();
   const lines = [
+    ...(problem ? [`\u26a0 ${problem}: defaults in use until it's fixed`, ""] : []),
     `search    ${chainLine(cfg.search.order, cfg.search.off, cfg.skipUntil)}`,
     `fetch     ${chainLine(cfg.fetch.order, cfg.fetch.off, cfg.skipUntil)}`,
     `format    ${cfg.format}    excerpts ${cfg.excerpts}`,
@@ -543,7 +546,16 @@ function parseNames<T extends string>(words: string[], allowed: readonly T[]): {
   return { names, bad };
 }
 
+/** /web, with a refused save (web.json doesn't parse) as a warning rather than a failed command. */
 async function handleWeb(args: string, ctx: ExtensionContext): Promise<void> {
+  try {
+    await handleWebCommand(args, ctx);
+  } catch (e) {
+    ctx.ui.notify(`web: ${(e as Error).message}`, "warning");
+  }
+}
+
+async function handleWebCommand(args: string, ctx: ExtensionContext): Promise<void> {
   const words = args.trim().split(/\s+/).filter(Boolean);
   const notify = (msg: string) => ctx.ui.notify(msg, "info");
 

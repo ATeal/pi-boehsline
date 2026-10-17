@@ -124,19 +124,39 @@ function coerce(raw: unknown): WebConfig {
 }
 
 let cached: WebConfig | undefined;
+/**
+ * Why web.json couldn't be read, when it exists but doesn't parse. Defaults
+ * stand in for this process, and saves refuse to overwrite the file, so a
+ * stray comma doesn't cost the user their order and off lists.
+ */
+let unreadable: string | undefined;
 
 export async function loadConfig(): Promise<WebConfig> {
   if (cached) return cached;
+  let text: string | undefined;
   try {
-    cached = coerce(JSON.parse(await readFile(configPath(), "utf8")));
+    text = await readFile(configPath(), "utf8");
   } catch {
+    // Missing (or unreadable as a file): defaults, and saving may create it.
+  }
+  try {
+    cached = coerce(text === undefined ? {} : JSON.parse(text));
+    unreadable = undefined;
+  } catch (e) {
+    unreadable = `${configPath()} doesn't parse (${(e as Error).message})`;
     cached = coerce({});
   }
   return cached;
 }
 
+/** Why web.json is being ignored, if it is; /web shows it. */
+export function configProblem(): string | undefined {
+  return unreadable;
+}
+
 export async function saveConfig(next: WebConfig): Promise<void> {
   cached = next;
+  if (unreadable) throw new Error(`${unreadable}; fix it by hand, it was not overwritten`);
   const path = configPath();
   const tmp = `${path}.tmp`;
   await mkdir(agentDir(), { recursive: true });
@@ -158,13 +178,19 @@ export function activeChain<T extends string>(order: T[], off: T[], skipUntil: R
   return order.filter((name) => !off.includes(name) && !((skipUntil[name] ?? 0) > now));
 }
 
+/**
+ * Bench a backend for a while. Best effort and never rejects: callers fire it
+ * from a tier's error path (unawaited) or inside a search fallback's catch,
+ * where a failed write must neither crash pi nor stop the chain. The cool-off
+ * holds in memory even when web.json can't be written.
+ */
 export async function markSkip(name: string, ms: number): Promise<void> {
   const until = Date.now() + ms;
   await mutateConfig((cfg) => {
     // Never shorten an existing cool-off: two failures in one turn would
     // otherwise reset the longer quota window to the shorter transient one.
     if (!((cfg.skipUntil[name] ?? 0) > until)) cfg.skipUntil[name] = until;
-  });
+  }).catch(() => {});
 }
 
 export async function clearSkips(): Promise<void> {
