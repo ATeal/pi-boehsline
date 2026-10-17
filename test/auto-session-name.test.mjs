@@ -157,6 +157,25 @@ test("generateTitle with no usable model throws NO_NAMING_MODEL, which the auto 
   await assert.rejects(generateTitle({ modelRegistry: fakeRegistry([], {}) }, "user: hi", {}, ["a/missing"]), new RegExp(NO_NAMING_MODEL));
 });
 
+test("the session-model fallback gets more tokens, and its failure is quiet", async () => {
+  const session = { provider: "anthropic", id: "adaptive-only" };
+  const calls = [];
+  const reg = {
+    ...fakeRegistry([session], {}),
+    complete: async (_model, _req, opts) => {
+      calls.push(opts.maxTokens);
+      return { stopReason: "length", content: [] };
+    },
+  };
+  const error = await generateTitle({ modelRegistry: reg, model: session }, "user: hi", {}, DEFAULT_NAME_MODELS).catch((e) => e);
+  assert.ok(error instanceof Error);
+  assert.equal(error.quiet, true);
+  assert.deepEqual(calls, [1024]);
+  // A listed model's failure still counts.
+  const listed = await generateTitle({ modelRegistry: reg }, "user: hi", {}, ["anthropic/adaptive-only"]).catch((e) => e);
+  assert.equal(listed.quiet, false);
+});
+
 test("an explicit model list never falls back to unlisted models", () => {
   const models = [
     { provider: "inco", id: "deepseek-v4.1-flash:fast" },

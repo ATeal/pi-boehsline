@@ -200,6 +200,9 @@ export function candidateModels(
   return out;
 }
 
+/** The session model may spend tokens reasoning even with thinking off; titles stay short anyway. */
+const FALLBACK_MAX_TOKENS = 1024;
+
 /** generateTitle's error when there is no model it could ask at all. */
 export const NO_NAMING_MODEL = "no naming model with credentials";
 
@@ -217,7 +220,11 @@ export async function generateTitle(
   if (!source.trim()) return "";
   const reg = ctx.modelRegistry as unknown as NamingRegistry;
   if (typeof reg?.complete !== "function") throw new Error("modelRegistry.complete unavailable");
-  const candidates = candidateModels(ctx, specs, state);
+  const listed = candidateModels(ctx, specs, state, false);
+  // Only the session's own model: it may not turn thinking off, so give it
+  // room, and a failure there is quiet (there was nothing better to try).
+  const usingFallback = listed.length === 0;
+  const candidates = usingFallback ? candidateModels(ctx, specs, state) : listed;
   if (!candidates.length) throw new Error(NO_NAMING_MODEL);
   const errors: string[] = [];
   for (const model of candidates) {
@@ -233,7 +240,7 @@ export async function generateTitle(
           messages: [{ role: "user", content: source.slice(0, 2000) }],
         },
         {
-          maxTokens: 64,
+          maxTokens: usingFallback ? FALLBACK_MAX_TOKENS : 64,
           cacheRetention: "none",
           signal: AbortSignal.timeout(15_000),
           sessionId: randomUUID(),
@@ -254,7 +261,7 @@ export async function generateTitle(
       errors.push(`${modelKey(model)}: ${summarizeError((e as Error)?.message)}`);
     }
   }
-  throw new Error(errors.join("; "));
+  throw Object.assign(new Error(errors.join("; ")), { quiet: usingFallback });
 }
 
 export default function (pi: ExtensionAPI) {
@@ -298,9 +305,10 @@ export default function (pi: ExtensionAPI) {
       if (title) failures = 0;
       else attempted = false;
     } catch (e) {
-      // Nothing to ask (no naming model, no session model with credentials):
-      // not a failure worth a warning, and retrying won't change it.
-      if ((e as Error).message === NO_NAMING_MODEL) return;
+      // Nothing to ask (no naming model, no session model with credentials),
+      // or only the session's own model and it couldn't: not worth a
+      // warning, and retrying won't change it. /auto-name still reports it.
+      if ((e as Error).message === NO_NAMING_MODEL || (e as { quiet?: boolean }).quiet) return;
       // Retry on later turns, but stop hammering providers that keep refusing.
       failures += 1;
       attempted = failures >= MAX_AUTO_FAILURES;
