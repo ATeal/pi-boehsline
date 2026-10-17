@@ -78,8 +78,13 @@
  * so a gap against the site reads as a version gap rather than a bug.
  *
  * The fetch is fire-and-forget: handlers never await it, so neither startup nor
- * the model switch block on the network, and a failure is silent (the next
- * switch retries). A model the API does not know at all — local oMLX weights —
+ * the model switch block on the network, and a failure is silent. A failed
+ * refresh is written to the cache as `retryAt`, so for the next hour, or for
+ * as long as a 429's Retry-After asks if that is longer, no pi session sharing
+ * the agent directory refetches. Briefings keep coming from the stale
+ * snapshot meanwhile: a week-old score beats nothing, and a refresh that
+ * retried on every switch would burn the shared 100-request window. A model
+ * the API does not know at all — local oMLX weights —
  * shows nothing. A model whose family AA knows but whose point release has no
  * scores yet says "scores not yet on AA" instead. Either kind of miss against
  * a snapshot older than 12 hours buys one forced re-fetch, so a point release
@@ -114,6 +119,8 @@ const TTL_MS = 7 * 24 * 60 * 60 * 1000;
  *  mid-week, and the weekly TTL would otherwise hide them for days. */
 const REFRESH_ON_MISS_MS = 12 * 60 * 60 * 1000;
 const FETCH_TIMEOUT_MS = 15_000;
+/** How long a failed refresh holds off the next one; a longer 429 Retry-After wins. */
+const FAILURE_BACKOFF_MS = 60 * 60 * 1000;
 
 /**
  * The cached, rendered shape: a free-tier row with the blended rate computed
@@ -164,6 +171,11 @@ interface AaCache {
    * written before versions were kept, which still briefs with a plain (AA) tag.
    */
   indexVersion?: number;
+  /**
+   * Epoch ms before which no refresh is attempted, set when one fails. With no
+   * snapshot yet to keep, the failure is recorded on an empty one (fetchedAt 0).
+   */
+  retryAt?: number;
 }
 
 /** Minimal shape of the pi model objects carried by events and ctx. */
@@ -584,12 +596,36 @@ async function writeCache(aa: AaCache): Promise<void> {
   }
 }
 
+/** A non-2xx answer, with how long the server asked us to wait (429 Retry-After). */
+class AaHttpError extends Error {
+  readonly status: number;
+  readonly retryAfterMs: number | undefined;
+  constructor(status: number, retryAfterMs?: number) {
+    super(`AA ${status}`);
+    this.status = status;
+    this.retryAfterMs = retryAfterMs;
+  }
+}
+
+/** Retry-After as milliseconds: delta-seconds or an HTTP date. */
+function parseRetryAfter(value: string | null): number | undefined {
+  if (!value) return undefined;
+  const seconds = Number(value);
+  if (Number.isFinite(seconds)) return Math.max(0, seconds * 1000);
+  const at = Date.parse(value);
+  return Number.isNaN(at) ? undefined : Math.max(0, at - Date.now());
+}
+
 async function getJson(url: string, key: string): Promise<unknown> {
   const response = await fetch(url, {
     headers: { "x-api-key": key },
     signal: AbortSignal.timeout(FETCH_TIMEOUT_MS),
   });
-  if (!response.ok) throw new Error(`AA ${response.status}`);
+  if (!response.ok) {
+    const retryAfter =
+      response.status === 429 ? parseRetryAfter(response.headers?.get("retry-after") ?? null) : undefined;
+    throw new AaHttpError(response.status, retryAfter);
+  }
   return response.json();
 }
 
@@ -632,7 +668,7 @@ function toModel(row: FreeRow): AaModel {
  * Every page of the free list. Page 1 says how many pages there are; the rest
  * go out together. A page that fails fails the whole refresh: half a model list
  * would brief some models and wrongly call others unscored, while a failed
- * refresh is silent and retried on the next switch.
+ * refresh only backs off and leaves the last good snapshot in place.
  */
 async function fetchPages(key: string): Promise<{ rows: FreeRow[]; version?: number }> {
   const pageUrl = (page: number) => `${ENDPOINT}?page=${page}`;
@@ -651,12 +687,16 @@ async function fetchPages(key: string): Promise<{ rows: FreeRow[]; version?: num
   };
 }
 
-/** One request per page covers every model; concurrent callers share the in-flight refresh. */
+/**
+ * One request per page covers every model. Resolves undefined only when there
+ * is no key (nothing was attempted); a refresh that was attempted and failed
+ * rejects, so loadData can record the backoff.
+ */
 async function fetchAll(): Promise<AaCache | undefined> {
   const key = await apiKey();
   if (!key) return undefined;
   const { rows, version } = await fetchPages(key);
-  if (rows.length === 0) return undefined;
+  if (rows.length === 0) throw new Error("AA returned no models");
   const costs: Record<string, number> = {};
   for (const row of rows) {
     const cost = num(row.artificial_analysis_intelligence_index_cost?.cost_per_task?.total_cost);
@@ -674,11 +714,34 @@ async function fetchAll(): Promise<AaCache | undefined> {
 
 let inflightFetch: Promise<AaCache | undefined> | undefined;
 
+/**
+ * Refresh, or record why not. A failure writes `retryAt` into the cache, on
+ * the stale snapshot when there is one, so every pi sharing the agent
+ * directory skips refetching until then, and resolves to that stale snapshot
+ * (or undefined) instead of rejecting.
+ */
+async function refresh(stale: AaCache | undefined): Promise<AaCache | undefined> {
+  try {
+    return (await fetchAll()) ?? stale;
+  } catch (error) {
+    const wait = Math.max(
+      FAILURE_BACKOFF_MS,
+      error instanceof AaHttpError ? (error.retryAfterMs ?? 0) : 0,
+    );
+    const failed: AaCache = { ...(stale ?? { fetchedAt: 0, data: [], costs: {} }), retryAt: Date.now() + wait };
+    await writeCache(failed);
+    return stale;
+  }
+}
+
 async function loadData(force = false): Promise<AaCache | undefined> {
   const cached = await readCache();
   if (cached && !force && Date.now() - cached.fetchedAt < TTL_MS) return cached;
+  // Backing off after a failure: brief from what we have, even past its TTL.
+  if (cached?.retryAt && Date.now() < cached.retryAt) return cached;
+  // Concurrent callers in this process share one in-flight refresh.
   if (!inflightFetch) {
-    inflightFetch = fetchAll().finally(() => {
+    inflightFetch = refresh(cached).finally(() => {
       inflightFetch = undefined;
     });
   }
@@ -749,7 +812,7 @@ export default function (pi: ExtensionAPI): void {
   // never delay the model switch or session start it decorates.
   const queue = (ctx: ExtensionContext, model: PiModel | undefined): void => {
     void brief(ctx, model).catch(() => {
-      /* silent: a failed fetch just means no briefing, and the next switch retries */
+      /* silent: a failed refresh backs off and briefs from the stale cache */
     });
   };
 

@@ -37,6 +37,8 @@ says which index the briefing's numbers belong to. Speeds are AA's free-tier
 snapshot, whose prompt preset isn't declared (it looks like the API's default
 10k-input `long` preset, and `prompt_type` is rejected). The fetch is
 fire-and-forget — neither startup nor the model switch waits on it — and a
-model the API does not know (local oMLX weights) or a failed fetch shows
-nothing. The key resolves from `$ARTIFICIAL_ANALYSIS_API_KEY`, then the secret command
+model the API does not know (local oMLX weights) shows nothing. A failed
+refresh is recorded in the cache (`retryAt`) and holds off every pi sharing it
+for an hour, or longer if a 429's `Retry-After` says so; briefings keep coming
+from the stale snapshot meanwhile, and with no snapshot yet, show nothing. The key resolves from `$ARTIFICIAL_ANALYSIS_API_KEY`, then the secret command
 (`secrets.command` in `boehsline.json`, `fnox get` by default), like the web providers; nothing touches the LLM context.

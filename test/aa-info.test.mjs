@@ -11,7 +11,7 @@
  */
 
 import assert from "node:assert/strict";
-import { mkdirSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
@@ -575,24 +575,118 @@ test("models the API does not know stay silent", async () => {
   });
 });
 
-test("a failed fetch is silent but retries on the next switch", async () => {
-  await withAgentDir(async () => {
+/** Read the cache file a test's agent dir holds. */
+const readCacheFile = (dir) =>
+  JSON.parse(readFileSync(path.join(dir, "cache", "aa-models.json"), "utf8"));
+
+/** Write a cache file into a test's agent dir. */
+function writeCacheFile(dir, cache) {
+  const file = path.join(dir, "cache", "aa-models.json");
+  mkdirSync(path.dirname(file), { recursive: true });
+  writeFileSync(file, JSON.stringify(cache));
+}
+
+const HOUR = 60 * 60 * 1000;
+
+test("a failed fetch is silent and holds off refetching for an hour", async () => {
+  await withAgentDir(async (dir) => {
     // Its own agent dir: a cache left by another test (or block) would serve
-    // this model without a fetch and the retry semantics would go untested.
+    // this model without a fetch and the backoff would go untested.
     const failing = withFetch(async () => {
       throw new Error("offline");
     });
     try {
       const ui = mount();
+      const before = Date.now();
       await ui.select(model("claude-opus-5"));
       assert.equal(ui.notifies.length, 0);
-      // The failure is not remembered: the next switch tries again.
-      await ui.select(model("claude-opus-5"));
-      await until(() => failing.count === 2 * FETCHES_PER_REFRESH, 100);
-      assert.equal(failing.count, 2 * FETCHES_PER_REFRESH);
+      await until(() => existsSync(path.join(dir, "cache", "aa-models.json")), 200);
+      // No snapshot to keep, so the failure rides an empty one.
+      const cached = readCacheFile(dir);
+      assert.deepEqual(cached.data, []);
+      assert.ok(cached.retryAt >= before + HOUR && cached.retryAt <= Date.now() + HOUR);
+      // The next switch, even from a fresh pi (another session), stays off the network.
+      await mount().select(model("claude-opus-5"));
+      await ui.select(model("gpt-5-6"));
+      assert.equal(failing.count, 1, "one attempt, then the backoff");
       assert.equal(ui.notifies.length, 0);
     } finally {
       failing.restore();
+    }
+  });
+});
+
+test("a 429's Retry-After extends the backoff, but never shortens it below an hour", async () => {
+  for (const [retryAfter, expected] of [
+    ["7200", 2 * HOUR],
+    ["60", HOUR],
+    [new Date(Date.now() + 3 * HOUR).toUTCString(), 3 * HOUR],
+  ]) {
+    await withAgentDir(async (dir) => {
+      const limited = withFetch(async () => ({
+        ok: false,
+        status: 429,
+        headers: new Headers({ "retry-after": retryAfter }),
+        json: async () => ({ error: "Rate limit exceeded" }),
+      }));
+      try {
+        await mount().select(model("claude-opus-5"));
+        await until(() => existsSync(path.join(dir, "cache", "aa-models.json")), 200);
+        const wait = readCacheFile(dir).retryAt - Date.now();
+        // HTTP dates have one-second resolution, hence the slack.
+        assert.ok(Math.abs(wait - expected) < 5_000, `Retry-After ${retryAfter}: waited ${wait}ms`);
+      } finally {
+        limited.restore();
+      }
+    });
+  }
+});
+
+test("a failed refresh briefs from the stale cache and keeps it", async () => {
+  await withAgentDir(async (dir) => {
+    // Eight days old: past the weekly TTL, so this switch tries to refresh.
+    const fetchedAt = Date.now() - 8 * 24 * HOUR;
+    writeCacheFile(dir, { fetchedAt, data: SAMPLE, costs: COST_BY_SLUG, indexVersion: 4.3 });
+    const failing = withFetch(async () => ({ ok: false, status: 503, json: async () => ({}) }));
+    try {
+      const ui = mount();
+      await ui.start();
+      assert.deepEqual(ui.notifies, [
+        { message: OPUS_LINE.replace(/\(AA\)$/, "(AA v4.3)"), level: "info" },
+      ]);
+      const cached = readCacheFile(dir);
+      assert.equal(cached.fetchedAt, fetchedAt, "still the old snapshot");
+      assert.equal(cached.data.length, SAMPLE.length);
+      assert.ok(cached.retryAt > Date.now());
+      // Stale and backing off: switches keep briefing without the network.
+      await ui.select(model("gpt-5-6"));
+      assert.match(ui.notifies[1].message, /^GPT-5\.6 — /);
+      assert.equal(failing.count, 1);
+    } finally {
+      failing.restore();
+    }
+  });
+});
+
+test("once the backoff passes, the next switch refreshes and clears it", async () => {
+  await withAgentDir(async (dir) => {
+    writeCacheFile(dir, {
+      fetchedAt: Date.now() - 8 * 24 * HOUR,
+      data: SAMPLE,
+      costs: COST_BY_SLUG,
+      retryAt: Date.now() - 1,
+    });
+    const fetcher = withFetch(serve(SAMPLE, { costs: COST_BY_SLUG, version: 4.3 }));
+    try {
+      const ui = mount();
+      await ui.start();
+      assert.equal(fetcher.count, FETCHES_PER_REFRESH);
+      await until(() => readCacheFile(dir).retryAt === undefined, 200);
+      const cached = readCacheFile(dir);
+      assert.equal(cached.retryAt, undefined);
+      assert.equal(cached.indexVersion, 4.3);
+    } finally {
+      fetcher.restore();
     }
   });
 });
