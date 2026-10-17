@@ -2319,7 +2319,13 @@ export default function canvas(pi: ExtensionAPI) {
       }
       ensureDir(ctx);
       if (!(await ensureDaemon())) {
-        ctx.ui.notify(`canvas: daemon did not start; see ${join(canvasRoot(), ".daemon.log")}`, "error");
+        const logPath = join(canvasRoot(), ".daemon.log");
+        // Its last line usually says why (a port in use, a bad root), so show it.
+        let last = "";
+        try {
+          last = readFileSync(logPath, "utf8").trim().split("\n").at(-1)?.trim().slice(0, 200) ?? "";
+        } catch {}
+        ctx.ui.notify(`canvas: daemon did not start${last ? `: ${last}` : ""}; see ${logPath}`, "error");
         return;
       }
       const how = await openInSafari(url);
