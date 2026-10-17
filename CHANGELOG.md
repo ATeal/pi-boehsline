@@ -2,9 +2,24 @@
 
 ## Unreleased
 
+## 0.2.4 — 2026-10-16
+
+### Added
+
+- footer: the session name sits in the editor's top border (`── my-session ────`), like Claude Code. The `name` chip's modes are `border` (default) and `footer`; an unnamed session shows its dim agent-link name, a `/color` tint colours it, and clicking it runs `/auto-name`. pi's own working status takes the border while it shows.
+- footer: a **Placement** row, first in `/footer`, moves the chips into the editor's borders: `below` (default) · `top border left` (just after the name) · `top border right` · `bottom border left` · `bottom border right` (before pi's "↓ N more"). Chips go up in footer order while they fit whole, the rest stay below, and they stay clickable in fullscreen.
+- footer: while the guardian is bypassed, the session name turns red with ⚠ (`⚠ my-session`); clicking it turns bypass back on. The bypass row's modes are `name` (default) · `chip` · `both` · `hidden`, and the chip shows whenever the name isn't on screen.
+
 ### Changed
 
 - approval-guardian (local change to the subtree): a quoted heredoc that `python3`/`python` or `node` runs as its program (`python3 - <<'EOF'`, flags without values only) is lexed in that language, and its comments don't count as private names, so an edit script whose `#` comment says "credentials" no longer needs explicit approval as a private-data read. String contents stay evidence, and any other receiver (xargs, tar -T -, cat, `python3 -c`, a script file, Ruby, Perl, anything unknown) keeps the old reading: stdin there may be file names. Private only when both readings agree; every bash command is still model-reviewed. The guardian's own tests now run in `npm test`.
+
+### Fixed
+
+- web: a `web.json` that doesn't parse is never overwritten (it used to be replaced with defaults, losing the file); `/web` shows a ⚠ line saying what's wrong. Marking a backend skipped can no longer reject unhandled and end pi.
+- canvas: when the daemon's port is taken it says so ("port N is in use …; exiting") instead of dying silently, and `.daemon.json` is written only once it is listening, so a dead daemon isn't advertised.
+- subagent: a child killed by a signal reports "killed by SIG…" (keeping its partial reply) and one that can't start reports "could not start pi: …", instead of either passing as success.
+- auto-session-name: the session-model fallback has room to answer (1024 tokens) and fails quietly.
 
 ## 0.2.3 — 2026-10-16
 
