@@ -32,6 +32,14 @@ tint when there is one; a peer name stays dim); pi's "↑ 3 more" moves to the r
 truncates the name. The Session name row's `footer` mode puts it back at the
 right end of the footer, where a click prefills `/auto-name`.
 
+The Placement row, first in `/footer`, can move the chips themselves into
+that border, right of the name: `── my-session ──── dotfiles main* opus ──`.
+Chips go up in footer order while they fit whole; the rest stay below, so a
+narrow pane loses nothing, and with every chip up there is no footer row at
+all. Extension statuses keep their own row below. In fullscreen the chips in
+the border are clickable like the footer's. While `/footer` is open the
+editor isn't drawn, so the preview shows every chip below.
+
 Changes apply to the current session only, and a warning under the list says
 so until Alt+S saves them to `footer.json` in the agent directory, defaults
 left out:

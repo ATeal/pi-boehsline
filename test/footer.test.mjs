@@ -37,8 +37,10 @@ import footer, {
   DEFAULT_CHIP_ORDER,
   FOOTER_CHIPS,
   minutesUntilClock,
+  LAYOUT_ROWS,
   nameTopBorder,
   readFooterConfig,
+  topBorderLayout,
   writeFooterConfig,
   worktreeRepo,
 } from "../extensions/footer/index.ts";
@@ -2014,6 +2016,92 @@ test("an editor that isn't pi-tui's is left as it is", async () => {
   });
 });
 
+test("topBorderLayout: chips right of the name, a prefix that fits whole, then pi's indicator", () => {
+  const chips = [
+    { text: "dotfiles", width: 8 },
+    { text: "main*", width: 5 },
+    { text: "opus", width: 4 },
+  ];
+  const id = (t) => t;
+  const full = topBorderLayout("repo", chips, 0, 40, id);
+  assert.equal(full.line, "── repo ───────── dotfiles main* opus ──");
+  assert.equal(full.line.length, 40);
+  assert.equal(full.taken, 3);
+  // Each start points at its chip, for click zones.
+  full.starts.forEach((start, i) => assert.equal(full.line.slice(start, start + chips[i].width), chips[i].text));
+  // A prefix only: opus would fit where main* doesn't, but order holds.
+  const tight = topBorderLayout("repo", chips, 0, 24, id);
+  assert.equal(tight.line, "── repo ──── dotfiles ──");
+  assert.equal(tight.line.length, 24);
+  assert.equal(tight.taken, 1);
+  // The indicator goes last, after the chips.
+  assert.equal(topBorderLayout("repo", chips, 3, 40, id).line, "── repo ─── dotfiles main* ─ ↑ 3 more ──");
+  // No name: the line still starts as a border.
+  assert.equal(topBorderLayout("", chips.slice(0, 1), 0, 16, id).line, "──── dotfiles ──");
+  assert.equal(topBorderLayout("repo", chips, 0, 20, id), undefined, "no chip fits: the caller draws the name alone");
+});
+
+test("top-border placement: the editor takes the chips that fit and the footer below skips them, for that render pass only", async () => {
+  await withAgentDir(async (dir) => {
+    writeFileSync(path.join(dir, "footer.json"), JSON.stringify({ placement: "top border" }));
+    const ui = await mount({ mode: "tui", sessionName: "my-session", editorFactory: () => fakeEditor() });
+    ui.plain(); // settle git
+    await new Promise((resolve) => setTimeout(resolve, 20));
+    const editor = ui.editorFactory()({ mode: "fullscreen", requestRender() {} });
+    // pi renders the editor, then the footer, in one synchronous pass.
+    const top = strip(editor.renderTopBorder(120, 0));
+    const below = ui.plain();
+    assert.match(top, /^\{──\} \{my-session\} \{─+\} dotfiles master\* gh opus hi 41\/1m \{──\}$/);
+    assert.deepEqual(below, [], "every chip went up, so no footer row");
+    // A pass without the editor (a selector in its place) shows them below again.
+    await Promise.resolve();
+    assert.equal(ui.plain()[0], "dotfiles master* gh opus hi 41/1m");
+    // Too narrow for all: the rest stay below, whole and in order.
+    const narrow = strip(editor.renderTopBorder(44, 0));
+    const rest = ui.plain(44);
+    assert.match(narrow, /\} dotfiles master\* gh \{──\}$/);
+    assert.equal(rest[0], "opus hi 41/1m");
+  });
+});
+
+test("top-border chips are clickable in fullscreen, and other clicks reach the editor", async () => {
+  await withAgentDir(async (dir) => {
+    writeFileSync(path.join(dir, "footer.json"), JSON.stringify({ placement: "top border" }));
+    const ui = await mount({ mode: "tui", sessionName: "s", editorFactory: () => ({ ...fakeEditor(), handleMouse: (event) => ({ editorGot: event.y }) }) });
+    ui.plain();
+    await new Promise((resolve) => setTimeout(resolve, 20));
+    const editor = ui.editorFactory()({ mode: "fullscreen", requestRender() {} });
+    const top = strip(editor.renderTopBorder(120, 0));
+    const x = top.indexOf("dotfiles");
+    const press = editor.handleMouse({ type: "press", button: "left", x, y: 0 });
+    assert.deepEqual(press, { handled: true });
+    editor.handleMouse({ type: "click", button: "left", x, y: 0 });
+    await Promise.resolve();
+    assert.match(ui.plain()[0], /^\/Users\/someone\/Code\/github\.com\/someone\/dotfiles /, "dir flipped to the full path");
+    assert.deepEqual(editor.handleMouse({ type: "click", button: "left", x: 3, y: 0 }), { editorGot: 0 }, "the name isn't a chip");
+    assert.deepEqual(editor.handleMouse({ type: "click", button: "left", x, y: 2 }), { editorGot: 2 });
+  });
+});
+
+test("/footer: Placement is the first row, cycles below → top border, and saves", async () => {
+  await withAgentDir(async (dir) => {
+    const ui = await mount();
+    const list = await openChecklist(ui);
+    list.handleInput("k");
+    const selected = () => list.render(140).map(strip).find((line) => line.startsWith("→")) ?? "";
+    assert.match(selected(), /→ Placement\s+below/);
+    assert.ok(list.render(140).map(strip).some((line) => line.includes("in the editor's top border")), "its description");
+    list.handleInput(" ");
+    assert.match(selected(), /→ Placement\s+top border/);
+    list.handleInput("\x1bs"); // Alt+S
+    assert.equal(JSON.parse(readFileSync(path.join(dir, "footer.json"), "utf8")).placement, "top border");
+    assert.equal(readFooterConfig().placement, "top border");
+    writeFileSync(path.join(dir, "footer.json"), JSON.stringify({ placement: "sideways" }));
+    assert.equal(readFooterConfig().placement, undefined, "an unknown placement falls back to below");
+    assert.equal(LAYOUT_ROWS[0].values[0], "below");
+  });
+});
+
 /** Open /footer against a stub ui.custom; returns the checklist component. */
 /** Move down (or with `key`) until the selected row matches, rather than counting rows. */
 function selectRow(list, pattern, key = "j") {
@@ -2029,6 +2117,9 @@ async function openChecklist(ui) {
     list = factory({ requestRender() {} }, { fg: (_color, text) => text }, {}, () => {});
   };
   await ui.run("footer");
+  // Past the layout rows (Placement) to the first chip, where these tests start;
+  // `k` goes back up to them.
+  for (let i = 0; i < LAYOUT_ROWS.length; i += 1) list.handleInput("j");
   return list;
 }
 

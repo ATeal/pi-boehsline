@@ -188,6 +188,8 @@ export interface FooterConfig {
    * name hides the chip there. Not editable in /footer; kept when it saves.
    */
   dirNames?: Record<string, string>;
+  /** "top border" puts the chips in the editor's top border, right of the name; absent means below. */
+  placement?: string;
 }
 
 /** Context threshold choices for /footer, "always" first (the default). */
@@ -267,6 +269,23 @@ type ConditionKey = (typeof CONDITION_ROWS)[number]["key"];
 
 const conditionRow = (key: string) => CONDITION_ROWS.find((row) => row.key === key);
 
+/** Settings of the whole footer rather than one chip: /footer lists them first. */
+export const LAYOUT_ROWS = [
+  {
+    key: "placement",
+    label: "Placement",
+    description: "Below the editor, or in the editor's top border, right of the session name: chips that don't fit stay below, whole, in order.",
+    values: ["below", "top border"],
+  },
+] as const satisfies readonly { key: keyof FooterConfig; label: string; description: string; values: readonly string[] }[];
+
+type SettingKey = ConditionKey | (typeof LAYOUT_ROWS)[number]["key"];
+
+/** Every saved string setting: the per-chip rows and the layout rows. */
+const SETTING_ROWS: readonly { key: SettingKey; values: readonly string[] }[] = [...CONDITION_ROWS, ...LAYOUT_ROWS];
+
+const layoutRow = (key: string) => LAYOUT_ROWS.find((row) => row.key === key);
+
 /**
  * Whether the context chip clears its threshold: ">100k" compares tokens,
  * ">50%" the share of the window. An unknown count (right after compaction)
@@ -300,6 +319,47 @@ export function nameTopBorder(
   const shown = truncateToWidth(name, maxName, "…");
   const fill = width - 4 - visibleWidth(shown) - rightWidth;
   return `${border("──")} ${shown} ${border("─".repeat(fill) + (right ? `${right}──` : ""))}`;
+}
+
+/**
+ * The editor's top border carrying the footer's chips (top-border
+ * placement): `── name ───── dir main* opus hi ── ↑ 3 more ──`. The name
+ * keeps its place; chips go right-aligned after it, a prefix in footer order
+ * that fits whole, and the caller leaves the rest below. undefined when no
+ * chip fits, so the caller draws the name alone (nameTopBorder).
+ * `starts` are the chips' first columns, for click zones.
+ */
+export function topBorderLayout(
+  name: string,
+  chips: readonly { text: string; width: number }[],
+  hiddenLineCount: number,
+  width: number,
+  border: (text: string) => string,
+): { line: string; taken: number; starts: number[] } | undefined {
+  const tail = hiddenLineCount > 0 ? `─ ↑ ${hiddenLineCount} more ──` : "──";
+  const leftWidth = name ? 4 + visibleWidth(name) : 0;
+  // At least one ─ (two without a name, so the line still starts as a border),
+  // a space either side of the chips, then the tail.
+  const budget = width - leftWidth - (name ? 1 : 2) - 2 - visibleWidth(tail);
+  let taken = 0;
+  let used = 0;
+  for (const chip of chips) {
+    const next = used + (taken > 0 ? 1 : 0) + chip.width;
+    if (next > budget) break;
+    used = next;
+    taken += 1;
+  }
+  if (taken === 0) return undefined;
+  const fill = width - leftWidth - used - 2 - visibleWidth(tail);
+  const starts: number[] = [];
+  let col = leftWidth + fill + 1;
+  for (const chip of chips.slice(0, taken)) {
+    starts.push(col);
+    col += chip.width + 1;
+  }
+  const left = name ? `${border("──")} ${name} ` : "";
+  const text = chips.slice(0, taken).map((chip) => chip.text).join(" ");
+  return { line: `${left}${border("─".repeat(fill))} ${text} ${border(tail)}`, taken, starts };
 }
 
 /** Tags the footer's editor factory, so a reload or /new unwraps it instead of stacking. */
@@ -344,7 +404,7 @@ export function footerConfigPath(): string {
 
 /** The saved config; unknown ids, unknown modes and a missing or broken file fall back to defaults. */
 export function readFooterConfig(): FooterConfig {
-  let parsed: { hidden?: unknown; modes?: unknown; order?: unknown; dirNames?: unknown } & Partial<Record<ConditionKey, unknown>> = {};
+  let parsed: { hidden?: unknown; modes?: unknown; order?: unknown; dirNames?: unknown } & Partial<Record<SettingKey, unknown>> = {};
   try {
     parsed = JSON.parse(readFileSync(footerConfigPath(), "utf8")) ?? {};
   } catch {
@@ -371,7 +431,7 @@ export function readFooterConfig(): FooterConfig {
   });
   const config: FooterConfig = { hidden, modes, order };
   // Unknown values fall back to the default, which is left out.
-  for (const row of CONDITION_ROWS) {
+  for (const row of SETTING_ROWS) {
     const value = parsed[row.key];
     if (typeof value === "string" && value !== row.values[0] && (row.values as readonly string[]).includes(value)) {
       config[row.key] = value;
@@ -404,7 +464,7 @@ export function writeFooterConfig(config: FooterConfig): void {
     order?: FooterLineChipId[];
     copilotOooSetAt?: string;
     dirNames?: Record<string, string>;
-  } & Partial<Record<ConditionKey, string>> = {
+  } & Partial<Record<SettingKey, string>> = {
     hidden: FOOTER_CHIPS.map((chip) => chip.id).filter((id) => config.hidden.has(id)),
   };
   const modes = Object.fromEntries(
@@ -412,7 +472,7 @@ export function writeFooterConfig(config: FooterConfig): void {
   );
   if (Object.keys(modes).length > 0) out.modes = modes;
   if (config.order.join() !== DEFAULT_CHIP_ORDER.join()) out.order = config.order;
-  for (const row of CONDITION_ROWS) {
+  for (const row of SETTING_ROWS) {
     const value = config[row.key];
     if (value && value !== row.values[0]) out[row.key] = value;
   }
@@ -429,7 +489,7 @@ export function sameFooterConfig(a: FooterConfig, b: FooterConfig): boolean {
       hidden: FOOTER_CHIPS.map((chip) => chip.id).filter((id) => config.hidden.has(id)),
       modes: FOOTER_CHIPS.map((chip) => chipMode(config, chip.id) ?? ""),
       order: config.order,
-      conditions: CONDITION_ROWS.map((row) => config[row.key] ?? row.values[0]),
+      conditions: SETTING_ROWS.map((row) => config[row.key] ?? row.values[0]),
       dirNames: config.dirNames ?? {},
     });
   return key(a) === key(b);
@@ -2027,6 +2087,19 @@ export default function footerExtension(pi: ExtensionAPI): void {
    * a stale line can never be hit-tested after the footer is gone.
    */
   let footerClickRows: FooterClickRow[] = [];
+  /** One chip as painted (preview styling included), its zones relative to its first column. */
+  type FooterPart = { id: FooterChipId; text: string; width: number; zones: FooterClickRow };
+  /** The footer's chips for the editor's top border; set while a footer is mounted. */
+  let borderParts: (() => FooterPart[]) | undefined;
+  /**
+   * How many leading chips the editor's top border drew in this render pass.
+   * The editor renders before the footer, which skips them; a microtask
+   * clears it after the pass, so a pass without the editor (a selector or
+   * /footer in its place) shows every chip below.
+   */
+  let borderTaken: number | undefined;
+  /** Click zones on the editor's top border, from its last render. */
+  let borderClickRow: FooterClickRow = {};
   // Clicks queue behind an in-flight switch, so a rapid double-click advances
   // twice instead of racing two reads of the same current model.
   let cycleQueue: Promise<void> = Promise.resolve();
@@ -2043,6 +2116,40 @@ export default function footerExtension(pi: ExtensionAPI): void {
     const row = footerClickRows[y];
     if (!row) return undefined;
     return ZONE_ACTIONS.find(([key]) => zoneHit(row[key], x))?.[1];
+  }
+
+  /** Run a chip's click action, from the footer or the editor's top border. */
+  function runChipAction(action: FooterClickAction, shift: boolean): void {
+    if (action === "model") queueModelCycle();
+    else if (action === "thinking") cycleThinkingForward();
+    else if (action === "boot") void showBootStats(BOOT_STATS_DEFAULT);
+    else if (action === "bypass") void setBypassActive(false);
+    // Toggles repaint the footer itself, which is the feedback — no notice.
+    else if (action === "dir") {
+      showFullPath = !showFullPath;
+      repaint?.();
+    } else if (action === "context") {
+      contextPercent = !contextPercent;
+      repaint?.();
+    } else if (action === "providerUsage") {
+      const modes = CHIP_MODES.usage ?? ["compact"];
+      usageMode = modes[(modes.indexOf(usageMode) + 1) % modes.length] ?? "compact";
+      repaint?.();
+    } else if (action === "rate") {
+      detailedRate = !detailedRate;
+      repaint?.();
+    } else if (action === "cost") {
+      compactCostUsage = !compactCostUsage;
+      repaint?.();
+    } else if (action === "name") {
+      prefillAutoNameCommand();
+    } else if (action === "gitStatus") {
+      prefillBashCommand("git status -s");
+    } else if (action === "gitPush") {
+      prefillBashCommand(shift ? "git push --force-with-lease" : "git push");
+    } else if (action === "gitPull") {
+      prefillBashCommand(shift ? "git pull --rebase --autostash" : "git pull --ff-only");
+    }
   }
 
   /** Fill the auto-name command without destroying a prompt already in progress. */
@@ -2116,7 +2223,42 @@ export default function footerExtension(pi: ExtensionAPI): void {
         // Read borderColor per render: pi swaps it for `!` bash mode and thinking levels.
         const borderPaint = (text: string) => (editor.borderColor ?? borderColor)(text);
         const name = nameShownAs("border") ? sessionNameText(ctx.ui.theme, () => tui.requestRender(), borderPaint) : "";
+        const parts = borderParts?.() ?? [];
+        const layout = parts.length ? topBorderLayout(name, parts, hidden, width, borderPaint) : undefined;
+        borderClickRow = {};
+        if (layout) {
+          borderTaken = layout.taken;
+          queueMicrotask(() => {
+            borderTaken = undefined;
+          });
+          layout.starts.forEach((start, i) => {
+            for (const [key, zone] of Object.entries(parts[i]!.zones) as Array<[FooterZoneKey, ClickZone]>) {
+              const placed: ClickZone = [zone[0] + start, zone[1] + start];
+              borderClickRow[key] = key === "usage" && borderClickRow.usage ? [borderClickRow.usage[0], placed[1]] : placed;
+            }
+          });
+          return layout.line;
+        }
         return (name && nameTopBorder(name, hidden, width, borderPaint)) || piBorder(width, hidden);
+      };
+      // Clicks on the top border's chips, fullscreen only like the footer's;
+      // everything else is the editor's.
+      const mouseTarget = editor as unknown as { handleMouse?(event: TuiMouseEvent): unknown };
+      const editorMouse = mouseTarget.handleMouse?.bind(editor);
+      mouseTarget.handleMouse = (event: TuiMouseEvent) => {
+        if (
+          event.y === 0 &&
+          tui.mode === "fullscreen" &&
+          event.button === "left" &&
+          (event.type === "press" || event.type === "click")
+        ) {
+          const action = ZONE_ACTIONS.find(([key]) => zoneHit(borderClickRow[key], event.x))?.[1];
+          if (action) {
+            if (event.type === "click") runChipAction(action, event.shift === true);
+            return { handled: true };
+          }
+        }
+        return editorMouse?.(event);
       };
       return editor;
     };
@@ -2149,10 +2291,225 @@ export default function footerExtension(pi: ExtensionAPI): void {
       const unsubscribe = footerData.onBranchChange(requestRender);
       repaint = requestRender;
 
+      /** The chips as painted, in /footer order, with what render needs around them. */
+      const collect = () => {
+        const provider = ctx.model?.provider;
+        const usage = ctx.getContextUsage();
+        const gitState = git.read(ctx.cwd, requestRender);
+        const branch = footerData.getGitBranch();
+        // Git "branch" mode drops the dirty marker and the arrows (and their clicks);
+        // the Git condition can hide the chip on a clean default branch.
+        const gitChip = gitChipHidden(footerConfig.gitWhen, branch, gitState)
+          ? EMPTY_GIT_CHIP
+          : formatGit(
+              branch,
+              chipMode(footerConfig, "git") === "branch" ? { ...gitState, dirty: false, ahead: false, behind: false } : gitState,
+            );
+        const statuses = footerData.getExtensionStatuses();
+        const usageValue = usageChip(provider);
+        // theme is pi's live proxy, so a light/dark switch repaints with the right pair.
+        const lightTheme = theme.appearance === "light";
+
+        if (coldStart && bootMs === undefined) {
+          bootMs = Math.round(process.uptime() * 1_000);
+          void recordBoot(bootMs, ctx.cwd).catch(() => {});
+        }
+        const showBoot = bootMs !== undefined && !bootCleared;
+
+        // Idle compaction as compaction/index.ts set it (⏲ 2:41p), or as a
+        // countdown (⏲ 37m), which the 30s update tick keeps current.
+        const idleChipText = (status: string | undefined): string => {
+          idleCountdownShown = false;
+          if (!status) return "";
+          const minutes =
+            chipMode(footerConfig, "idle") === "countdown" ? minutesUntilClock(status, new Date()) : undefined;
+          if (minutes === undefined) return theme.fg("dim", status);
+          idleCountdownShown = true;
+          return theme.fg("dim", `⏲ ${minutes}m`);
+        };
+        const hideAsDefault = (chip: "provider" | "model" | "thinking") =>
+          defaultChipHidden(
+            chip,
+            footerConfig[`${chip}When`],
+            { provider: ctx.model?.provider, model: ctx.model?.id, thinking: pi.getThinkingLevel() },
+            chipDefaults,
+          );
+        const chips: Array<readonly [Exclude<FooterChipId, "name" | "statuses">, string]> = [
+          ["dir", color(BLUE, dirLabel(ctx.cwd, showFullPath, footerConfig.dirNames))],
+          ["worktree", ((repo) => (repo ? color(BLUE, `⎇ ${repo}`) : ""))(worktreeRepo(ctx.cwd))],
+          ["git", gitChip.text],
+          [
+            "provider",
+            hideAsDefault("provider") ? "" : color(BRIGHT_YELLOW, shortProvider(provider)),
+          ],
+          [
+            "model",
+            hideAsDefault("model")
+              ? ""
+              : color(BRIGHT_YELLOW, `${routePrefix(provider, ctx.model?.id)}${shortModel(ctx.model?.id, provider)}`),
+          ],
+          [
+            "thinking",
+            ctx.model?.reasoning && !hideAsDefault("thinking")
+              ? color(BRIGHT_YELLOW, shortThinking(pi.getThinkingLevel()))
+              : "",
+          ],
+          ["bypass", bypassed ? color(BRIGHT_RED, "bypass") : ""],
+          // context-length / context-window share one segment (no spaces around "/"),
+          // or a single percent when the chip is toggled; hidden below the
+          // /footer threshold.
+          [
+            "context",
+            !contextAboveThreshold(footerConfig.contextMin, usage?.tokens, usage?.contextWindow)
+              ? ""
+              : contextPercent
+              ? color(
+                  contextColorCode(usage?.tokens, usage?.contextWindow),
+                  usage?.percent == null ? "?" : formatPercent(usage.percent),
+                )
+              : `${color(
+                  contextColorCode(usage?.tokens, usage?.contextWindow),
+                  usage?.tokens == null ? "?" : formatThousands(usage.tokens),
+                )}/${color(CYAN, usage?.contextWindow ? formatCount(usage.contextWindow) : "?")}`,
+          ],
+          ["idle", idleChipText(statuses.get(IDLE_COMPACT_STATUS))],
+          [
+            "cost",
+            usageValue
+              ? renderBudgetUsage(usageValue, budgetResetMs(provider), compactCostUsage)
+              : hideSessionCost(provider, ctx)
+                ? ""
+                : color(GREEN, formatCost(sessionCost(ctx.sessionManager.getBranch()))),
+          ],
+          ...INLINE_STATUS_KEYS.map((key) => {
+            const raw = statuses.get(key);
+            const value = raw ? stripAllowanceArrow(raw) : raw;
+            // Per-window coloring: a red 5h shouldn't paint the week red too.
+            if (!value || usageChipHidden(footerConfig.usageWhen, usagePace(value))) return ["usage", ""] as const;
+            const showPace = footerConfig.usagePace === "on";
+            const mini = usageMode === "mini" ? renderMiniUsage(value, showPace) : undefined;
+            return ["usage", mini ?? renderWindowUsage(value, usageMode !== "detailed", showPace)] as const;
+          }),
+          ["boot", showBoot ? theme.fg("dim", `⚡${formatMs(bootMs as number)}`) : ""],
+          // Waiting for the first token: the TTFT counts up, dim (detailed
+          // mode keeps the previous rate beside it, faint). Then live
+          // (faint) while streaming, and the exact figure once it ends.
+          [
+            "rate",
+            !rateChipShown(footerConfig.rateWhen, {
+              active: waitingForToken || streaming,
+              elapsedMs: turnStartMs === undefined ? undefined : Date.now() - turnStartMs,
+              lastTurnMs,
+            })
+              ? ""
+              : waitingForToken && turnStartMs !== undefined
+              ? `${theme.fg("dim", `${((Date.now() - turnStartMs) / 1_000).toFixed(1)}s`)}${
+                  detailedRate && lastRate !== undefined
+                    ? ` ${faint(color(rateColor(lastRate, lightTheme), `${formatRateValue(lastRate)}tk/s`))}`
+                    : ""
+                }`
+              : liveRate !== undefined
+                ? faint(color(rateColor(liveRate, lightTheme), formatRateChip(liveRate, liveTtftMs, detailedRate)))
+                : lastRate !== undefined
+                  ? streaming
+                    ? faint(color(rateColor(lastRate, lightTheme), formatRateChip(lastRate, lastTtftMs, detailedRate)))
+                    : color(rateColor(lastRate, lightTheme), formatRateChip(lastRate, lastTtftMs, detailedRate))
+                  : "",
+          ],
+        ];
+        // /footer's order: a stable sort, so the rate-limit slots stay together.
+        const rank = (id: FooterLineChipId) => footerConfig.order.indexOf(id);
+        chips.sort(([a], [b]) => rank(a) - rank(b));
+        // /footer samples every chip, hidden ones included; the walk below
+        // then skips the hidden ones.
+        const samples = new Map<FooterChipId, string>();
+        for (const [id, text] of chips) {
+          if (text) samples.set(id, samples.has(id) ? `${samples.get(id)} ${text}` : text);
+        }
+        // /footer's preview: the selected chip blinks underlined, the rest go
+        // faint gray (faint too, so a chip that is already dim, like boot or
+        // idle, still stands out when selected), and hidden chips show struck
+        // through so you can see where they'd go.
+        const previewStyle = (id: FooterChipId, text: string): string => {
+          if (!previewChip || !text) return text;
+          const styled = id === previewChip ? blink(underline(text)) : faint(theme.fg("dim", stripAnsi(text)));
+          return footerConfig.hidden.has(id) ? strike(styled) : styled;
+        };
+        // The selected chip, when it has nothing to show right now, stands in
+        // with its example, styled the way the real chip is, so you see what
+        // it would look like and where it would sit.
+        const placeholder = (id: FooterChipId): string => {
+          const text = FOOTER_CHIPS.find((chip) => chip.id === id)?.example ?? "";
+          switch (id) {
+            case "dir":
+            case "worktree":
+              return color(BLUE, text);
+            case "git":
+              return `${color(MAGENTA, "main*")} ${color(CYAN, "⇡")}`;
+            case "provider":
+            case "model":
+            case "thinking":
+              return color(BRIGHT_YELLOW, text);
+            case "bypass":
+              return color(BRIGHT_RED, text);
+            case "context":
+              return `${color(contextColorCode(42_000, 1_000_000), "42k")}/${color(CYAN, "1m")}`;
+            case "cost":
+              return color(GREEN, text);
+            case "usage":
+              return color(YELLOW, text);
+            case "rate":
+              return color(rateColor(99, lightTheme), text);
+            case "name":
+              return color(CYAN, text);
+            default:
+              // idle, boot and the status row are dim in the real footer.
+              return theme.fg("dim", text);
+          }
+        };
+        const previewEmpty = previewChip !== undefined && !chips.some(([id, text]) => id === previewChip && text);
+        // Hidden chips (outside the preview) and empties drop out; zones are
+        // relative to each chip, placed by whoever lays the chips out.
+        const parts: FooterPart[] = [];
+        let examplePlaced = false;
+        for (const [id, raw] of chips) {
+          // Rate limits fill several slots; the example takes only the first.
+          const isExample = !raw && previewEmpty && id === previewChip && !examplePlaced;
+          if (isExample) examplePlaced = true;
+          const text = isExample ? placeholder(id) : raw;
+          if (!text || (footerConfig.hidden.has(id) && !previewChip)) continue;
+          const part = previewStyle(id, text);
+          const partWidth = visibleWidth(part);
+          const span: ClickZone = [0, partWidth];
+          const zones: FooterClickRow = {};
+          if (isExample) {
+            // A stand-in has nothing to act on, so no click zone.
+          } else if (id === "git") {
+            zones.gitBranch = [0, gitChip.branchWidth];
+            if (gitChip.behindOffset !== undefined) zones.gitBehind = [gitChip.behindOffset, gitChip.behindOffset + 1];
+            if (gitChip.aheadOffset !== undefined) zones.gitAhead = [gitChip.aheadOffset, gitChip.aheadOffset + 1];
+          } else if (id === "cost") {
+            // A budget chip (ollama/baseten/openrouter) toggles percent/total;
+            // the plain session-cost fallback stays glance-only.
+            if (usageValue) zones.cost = span;
+          } else if (id === "usage") {
+            zones.usage = span;
+          } else if (id !== "idle" && id !== "worktree") {
+            // The idle-compaction and worktree chips are glance-only; every other chip is its own zone.
+            zones[id] = span;
+          }
+          parts.push({ id, text: part, width: partWidth, zones });
+        }
+        return { parts, samples, statuses, previewStyle, placeholder };
+      };
+      borderParts = () => (enabled && footerConfig.placement === "top border" ? collect().parts : []);
+
       return {
         dispose: () => {
           unsubscribe();
           footerClickRows = [];
+          borderParts = undefined;
+          borderClickRow = {};
           repaint = undefined;
         },
         invalidate(): void {},
@@ -2167,218 +2524,14 @@ export default function footerExtension(pi: ExtensionAPI): void {
           if (event.type !== "press" && event.type !== "click") return undefined;
           const action = footerChipAction(event.x, event.y);
           if (!action) return undefined;
-          if (event.type === "click") {
-            if (action === "model") queueModelCycle();
-            else if (action === "thinking") cycleThinkingForward();
-            else if (action === "boot") void showBootStats(BOOT_STATS_DEFAULT);
-            else if (action === "bypass") void setBypassActive(false);
-            // Toggles repaint the footer itself, which is the feedback — no notice.
-            else if (action === "dir") {
-              showFullPath = !showFullPath;
-              repaint?.();
-            } else if (action === "context") {
-              contextPercent = !contextPercent;
-              repaint?.();
-            } else if (action === "providerUsage") {
-              const modes = CHIP_MODES.usage ?? ["compact"];
-              usageMode = modes[(modes.indexOf(usageMode) + 1) % modes.length] ?? "compact";
-              repaint?.();
-            } else if (action === "rate") {
-              detailedRate = !detailedRate;
-              repaint?.();
-            } else if (action === "cost") {
-              compactCostUsage = !compactCostUsage;
-              repaint?.();
-            } else if (action === "name") {
-              prefillAutoNameCommand();
-            } else if (action === "gitStatus") {
-              prefillBashCommand("git status -s");
-            } else if (action === "gitPush") {
-              prefillBashCommand(event.shift ? "git push --force-with-lease" : "git push");
-            } else if (action === "gitPull") {
-              prefillBashCommand(event.shift ? "git pull --rebase --autostash" : "git pull --ff-only");
-            }
-          }
+          if (event.type === "click") runChipAction(action, event.shift === true);
           return { handled: true };
         },
         render(width: number): string[] {
           if (width <= 0) return [];
-
-          const provider = ctx.model?.provider;
-          const usage = ctx.getContextUsage();
-          const gitState = git.read(ctx.cwd, requestRender);
-          const branch = footerData.getGitBranch();
-          // Git "branch" mode drops the dirty marker and the arrows (and their clicks);
-          // the Git condition can hide the chip on a clean default branch.
-          const gitChip = gitChipHidden(footerConfig.gitWhen, branch, gitState)
-            ? EMPTY_GIT_CHIP
-            : formatGit(
-                branch,
-                chipMode(footerConfig, "git") === "branch" ? { ...gitState, dirty: false, ahead: false, behind: false } : gitState,
-              );
-          const statuses = footerData.getExtensionStatuses();
-          const usageValue = usageChip(provider);
-          // theme is pi's live proxy, so a light/dark switch repaints with the right pair.
-          const lightTheme = theme.appearance === "light";
-
-          if (coldStart && bootMs === undefined) {
-            bootMs = Math.round(process.uptime() * 1_000);
-            void recordBoot(bootMs, ctx.cwd).catch(() => {});
-          }
-          const showBoot = bootMs !== undefined && !bootCleared;
-
-          // Idle compaction as compaction/index.ts set it (⏲ 2:41p), or as a
-          // countdown (⏲ 37m), which the 30s update tick keeps current.
-          const idleChipText = (status: string | undefined): string => {
-            idleCountdownShown = false;
-            if (!status) return "";
-            const minutes =
-              chipMode(footerConfig, "idle") === "countdown" ? minutesUntilClock(status, new Date()) : undefined;
-            if (minutes === undefined) return theme.fg("dim", status);
-            idleCountdownShown = true;
-            return theme.fg("dim", `⏲ ${minutes}m`);
-          };
-          const hideAsDefault = (chip: "provider" | "model" | "thinking") =>
-            defaultChipHidden(
-              chip,
-              footerConfig[`${chip}When`],
-              { provider: ctx.model?.provider, model: ctx.model?.id, thinking: pi.getThinkingLevel() },
-              chipDefaults,
-            );
-          const chips: Array<readonly [Exclude<FooterChipId, "name" | "statuses">, string]> = [
-            ["dir", color(BLUE, dirLabel(ctx.cwd, showFullPath, footerConfig.dirNames))],
-            ["worktree", ((repo) => (repo ? color(BLUE, `⎇ ${repo}`) : ""))(worktreeRepo(ctx.cwd))],
-            ["git", gitChip.text],
-            [
-              "provider",
-              hideAsDefault("provider") ? "" : color(BRIGHT_YELLOW, shortProvider(provider)),
-            ],
-            [
-              "model",
-              hideAsDefault("model")
-                ? ""
-                : color(BRIGHT_YELLOW, `${routePrefix(provider, ctx.model?.id)}${shortModel(ctx.model?.id, provider)}`),
-            ],
-            [
-              "thinking",
-              ctx.model?.reasoning && !hideAsDefault("thinking")
-                ? color(BRIGHT_YELLOW, shortThinking(pi.getThinkingLevel()))
-                : "",
-            ],
-            ["bypass", bypassed ? color(BRIGHT_RED, "bypass") : ""],
-            // context-length / context-window share one segment (no spaces around "/"),
-            // or a single percent when the chip is toggled; hidden below the
-            // /footer threshold.
-            [
-              "context",
-              !contextAboveThreshold(footerConfig.contextMin, usage?.tokens, usage?.contextWindow)
-                ? ""
-                : contextPercent
-                ? color(
-                    contextColorCode(usage?.tokens, usage?.contextWindow),
-                    usage?.percent == null ? "?" : formatPercent(usage.percent),
-                  )
-                : `${color(
-                    contextColorCode(usage?.tokens, usage?.contextWindow),
-                    usage?.tokens == null ? "?" : formatThousands(usage.tokens),
-                  )}/${color(CYAN, usage?.contextWindow ? formatCount(usage.contextWindow) : "?")}`,
-            ],
-            ["idle", idleChipText(statuses.get(IDLE_COMPACT_STATUS))],
-            [
-              "cost",
-              usageValue
-                ? renderBudgetUsage(usageValue, budgetResetMs(provider), compactCostUsage)
-                : hideSessionCost(provider, ctx)
-                  ? ""
-                  : color(GREEN, formatCost(sessionCost(ctx.sessionManager.getBranch()))),
-            ],
-            ...INLINE_STATUS_KEYS.map((key) => {
-              const raw = statuses.get(key);
-              const value = raw ? stripAllowanceArrow(raw) : raw;
-              // Per-window coloring: a red 5h shouldn't paint the week red too.
-              if (!value || usageChipHidden(footerConfig.usageWhen, usagePace(value))) return ["usage", ""] as const;
-              const showPace = footerConfig.usagePace === "on";
-              const mini = usageMode === "mini" ? renderMiniUsage(value, showPace) : undefined;
-              return ["usage", mini ?? renderWindowUsage(value, usageMode !== "detailed", showPace)] as const;
-            }),
-            ["boot", showBoot ? theme.fg("dim", `⚡${formatMs(bootMs as number)}`) : ""],
-            // Waiting for the first token: the TTFT counts up, dim (detailed
-            // mode keeps the previous rate beside it, faint). Then live
-            // (faint) while streaming, and the exact figure once it ends.
-            [
-              "rate",
-              !rateChipShown(footerConfig.rateWhen, {
-                active: waitingForToken || streaming,
-                elapsedMs: turnStartMs === undefined ? undefined : Date.now() - turnStartMs,
-                lastTurnMs,
-              })
-                ? ""
-                : waitingForToken && turnStartMs !== undefined
-                ? `${theme.fg("dim", `${((Date.now() - turnStartMs) / 1_000).toFixed(1)}s`)}${
-                    detailedRate && lastRate !== undefined
-                      ? ` ${faint(color(rateColor(lastRate, lightTheme), `${formatRateValue(lastRate)}tk/s`))}`
-                      : ""
-                  }`
-                : liveRate !== undefined
-                  ? faint(color(rateColor(liveRate, lightTheme), formatRateChip(liveRate, liveTtftMs, detailedRate)))
-                  : lastRate !== undefined
-                    ? streaming
-                      ? faint(color(rateColor(lastRate, lightTheme), formatRateChip(lastRate, lastTtftMs, detailedRate)))
-                      : color(rateColor(lastRate, lightTheme), formatRateChip(lastRate, lastTtftMs, detailedRate))
-                    : "",
-            ],
-          ];
-          // /footer's order: a stable sort, so the rate-limit slots stay together.
-          const rank = (id: FooterLineChipId) => footerConfig.order.indexOf(id);
-          chips.sort(([a], [b]) => rank(a) - rank(b));
-          // /footer samples every chip, hidden ones included; the walk below
-          // then skips the hidden ones.
-          const samples = new Map<FooterChipId, string>();
-          for (const [id, text] of chips) {
-            if (text) samples.set(id, samples.has(id) ? `${samples.get(id)} ${text}` : text);
-          }
-          // /footer's preview: the selected chip blinks underlined, the rest go
-          // faint gray (faint too, so a chip that is already dim, like boot or
-          // idle, still stands out when selected), and hidden chips show struck
-          // through so you can see where they'd go.
-          const previewStyle = (id: FooterChipId, text: string): string => {
-            if (!previewChip || !text) return text;
-            const styled = id === previewChip ? blink(underline(text)) : faint(theme.fg("dim", stripAnsi(text)));
-            return footerConfig.hidden.has(id) ? strike(styled) : styled;
-          };
-          // The selected chip, when it has nothing to show right now, stands in
-          // with its example, styled the way the real chip is, so you see what
-          // it would look like and where it would sit.
-          const placeholder = (id: FooterChipId): string => {
-            const text = FOOTER_CHIPS.find((chip) => chip.id === id)?.example ?? "";
-            switch (id) {
-              case "dir":
-              case "worktree":
-                return color(BLUE, text);
-              case "git":
-                return `${color(MAGENTA, "main*")} ${color(CYAN, "⇡")}`;
-              case "provider":
-              case "model":
-              case "thinking":
-                return color(BRIGHT_YELLOW, text);
-              case "bypass":
-                return color(BRIGHT_RED, text);
-              case "context":
-                return `${color(contextColorCode(42_000, 1_000_000), "42k")}/${color(CYAN, "1m")}`;
-              case "cost":
-                return color(GREEN, text);
-              case "usage":
-                return color(YELLOW, text);
-              case "rate":
-                return color(rateColor(99, lightTheme), text);
-              case "name":
-                return color(CYAN, text);
-              default:
-                // idle, boot and the status row are dim in the real footer.
-                return theme.fg("dim", text);
-            }
-          };
-          const previewEmpty = previewChip !== undefined && !chips.some(([id, text]) => id === previewChip && text);
+          const { parts, samples, statuses, previewStyle, placeholder } = collect();
+          // Top-border placement: the editor drew the first chips this pass.
+          const skip = previewChip ? 0 : (borderTaken ?? 0);
 
           const nameText = sessionNameText(theme, requestRender);
           if (nameText) samples.set("name", nameText);
@@ -2414,52 +2567,26 @@ export default function footerExtension(pi: ExtensionAPI): void {
             zones = {};
             rowLimit = width;
           };
-          let examplePlaced = false;
-          for (const [id, raw] of chips) {
-            // Rate limits fill several slots; the example takes only the first.
-            const isExample = !raw && previewEmpty && id === previewChip && !examplePlaced;
-            if (isExample) examplePlaced = true;
-            const text = isExample ? placeholder(id) : raw;
-            if (!text || (footerConfig.hidden.has(id) && !previewChip)) continue;
-            const part = previewStyle(id, text);
-            const partWidth = visibleWidth(part);
+          for (const part of parts.slice(skip)) {
             // A chip moves down whole when it cannot fit its row's budget —
             // except a chip wider than the terminal itself, which can never
             // fit and is placed anyway (the flush truncates it). A lone chip
             // wider than the first row's name-budget also moves down, leaving
             // that row to the name.
             const fitsHere =
-              cursor === 0 ? partWidth <= rowLimit || rowLimit >= width : cursor + 1 + partWidth <= rowLimit;
+              cursor === 0 ? part.width <= rowLimit || rowLimit >= width : cursor + 1 + part.width <= rowLimit;
             if (!fitsHere) flushChipRow();
             if (cursor > 0) {
               current += " ";
               cursor += 1;
             }
-            const span: ClickZone = [cursor, cursor + partWidth];
-            if (isExample) {
-              // A stand-in has nothing to act on, so no click zone.
-            } else if (id === "git") {
-              zones.gitBranch = [cursor, cursor + gitChip.branchWidth];
-              if (gitChip.behindOffset !== undefined) {
-                zones.gitBehind = [cursor + gitChip.behindOffset, cursor + gitChip.behindOffset + 1];
-              }
-              if (gitChip.aheadOffset !== undefined) {
-                zones.gitAhead = [cursor + gitChip.aheadOffset, cursor + gitChip.aheadOffset + 1];
-              }
-            } else if (id === "cost") {
-              // A budget chip (ollama/baseten/openrouter) toggles percent/total;
-              // the plain session-cost fallback stays glance-only.
-              if (usageValue) zones.cost = span;
-            } else if (id === "usage") {
-              // Only one provider status normally renders. If extensions expose
-              // several, make their contiguous run one shared toggle target.
-              zones.usage = [zones.usage?.[0] ?? cursor, span[1]];
-            } else if (id !== "idle" && id !== "worktree") {
-              // The idle-compaction and worktree chips are glance-only; every other chip is its own zone.
-              zones[id] = span;
+            for (const [key, zone] of Object.entries(part.zones) as Array<[FooterZoneKey, ClickZone]>) {
+              const placed: ClickZone = [zone[0] + cursor, zone[1] + cursor];
+              // Several provider statuses on a row share one toggle target.
+              zones[key] = key === "usage" && zones.usage ? [zones.usage[0], placed[1]] : placed;
             }
-            current += part;
-            cursor += partWidth;
+            current += part.text;
+            cursor += part.width;
           }
           if (cursor > 0) flushChipRow();
 
@@ -2788,8 +2915,17 @@ export default function footerExtension(pi: ExtensionAPI): void {
         const sampleWidth = Math.max(8, 36 - labelWidth - 2);
         const chipById = new Map<FooterChipId, (typeof FOOTER_CHIPS)[number]>(FOOTER_CHIPS.map((chip) => [chip.id, chip]));
         // Rows follow the footer: the saved order, then the name and statuses, which stay put.
-        const buildItems = (): SettingItem[] =>
-          [...footerConfig.order, "name" as const, "statuses" as const].flatMap((id) => {
+        const layoutItems = (): SettingItem[] =>
+          LAYOUT_ROWS.map((row) => ({
+            id: row.key,
+            label: row.label.padEnd(labelWidth),
+            description: row.description,
+            currentValue: footerConfig[row.key] ?? row.values[0],
+            values: [...row.values],
+          }));
+        const buildItems = (): SettingItem[] => [
+          ...layoutItems(),
+          ...[...footerConfig.order, "name" as const, "statuses" as const].flatMap((id) => {
             const chip = chipById.get(id)!;
             const sample = chipSamples.get(id);
             const item: SettingItem = {
@@ -2811,7 +2947,8 @@ export default function footerExtension(pi: ExtensionAPI): void {
               values: [...row.values],
             }));
             return [item, ...rows];
-          });
+          }),
+        ];
         const listTheme: SettingsListTheme = {
           // Accent only the chip name: the sample after it keeps its colours.
           label: (text, selected) =>
@@ -2842,6 +2979,12 @@ export default function footerExtension(pi: ExtensionAPI): void {
           }
         };
         const onChange = (id: string, value: string) => {
+          const layout = layoutRow(id);
+          if (layout) {
+            footerConfig[layout.key] = value;
+            changed();
+            return;
+          }
           const row = conditionRow(id);
           if (row) {
             footerConfig[row.key] = value;
@@ -2885,7 +3028,11 @@ export default function footerExtension(pi: ExtensionAPI): void {
         const syncPreview = () => {
           const id = selectedId();
           // A condition row previews the chip it applies to.
-          previewChip = (id && conditionRow(id)?.chip) || ((id as FooterChipId | undefined) ?? FOOTER_CHIPS[0].id);
+          // A layout row previews the whole row, from its first chip.
+          previewChip =
+            (id && layoutRow(id) && footerConfig.order[0]) ||
+            (id && conditionRow(id)?.chip) ||
+            ((id as FooterChipId | undefined) ?? FOOTER_CHIPS[0].id);
           repaint?.();
         };
         // J/K or Shift+↑/↓: move the selected chip; the list is rebuilt in the
