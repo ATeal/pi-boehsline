@@ -247,6 +247,18 @@ test("a pi that never reads its prompt is an error, not a confident wrong answer
   assert.match(outcome.error, /could not send the prompt/);
 });
 
+test("a pi that fails before reading its prompt reports its own error, not the broken pipe", async (t) => {
+  const dir = withTempDir(t);
+  // A prompt bigger than the pipe buffer makes the EPIPE certain; the exit
+  // code and stderr still describe what actually went wrong.
+  const piBin = script(dir, "pi", 'echo "the model is down" >&2; exit 1');
+
+  const outcome = await runTask(task(dir, { prompt: "x".repeat(1_000_000) }), { piBin });
+  assert.equal(outcome.status, "error");
+  assert.match(outcome.error, /the model is down/);
+  assert.equal(outcome.exitCode, 1);
+});
+
 test("a pi that cannot be started says so instead of throwing", async (t) => {
   const dir = withTempDir(t);
   const outcome = await runTask(task(dir), { piBin: join(dir, "not-installed") });

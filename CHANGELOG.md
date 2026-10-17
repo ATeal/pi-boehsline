@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.2.1 — 2026-10-16
+
+### Fixed
+
+- scheduler: a task whose pi failed before reading its prompt was reported as "could not send the prompt" (the broken pipe) instead of pi's own error, depending on which landed first. pi's exit code and stderr now win; the broken-pipe error still catches a pi that exits 0 without its prompt. This also made two scheduler tests flaky in CI; a new test reproduces the race deterministically.
+
 ## 0.2.0 — 2026-10-16
 
 ### Breaking

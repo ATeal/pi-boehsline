@@ -328,23 +328,27 @@ async function executeTask(
   if (result.timedOut) {
     return { status: "timeout", output, error: `no result within ${timeoutMs}ms` };
   }
-  // The prompt goes in on stdin, so a broken pipe means pi may have run on a
-  // partial prompt — or none at all. Reporting that as success would hand back
-  // an answer to a question that was never fully asked.
-  if (result.stdinError) {
-    return {
-      status: "error",
-      exitCode: result.code ?? undefined,
-      output,
-      error: `could not send the prompt to ${piBin}: ${result.stdinError.message}`,
-    };
-  }
+  // A pi that failed is reported by its own error first. A pi that dies before
+  // reading stdin also breaks the prompt's pipe, and whether that EPIPE lands
+  // before the exit is a race; letting it win hid the real cause ("the model is
+  // down") behind "could not send the prompt", and made two tests flaky in CI.
   if (result.code !== 0) {
     return {
       status: "error",
       exitCode: result.code ?? undefined,
       output,
       error: truncate(result.stderr.trim() || `pi exited ${result.code ?? result.signal}`, 2_000),
+    };
+  }
+  // The prompt goes in on stdin, so a broken pipe from a pi that then exits 0
+  // means it may have run on a partial prompt — or none at all. Reporting that
+  // as success would hand back an answer to a question never fully asked.
+  if (result.stdinError) {
+    return {
+      status: "error",
+      exitCode: result.code ?? undefined,
+      output,
+      error: `could not send the prompt to ${piBin}: ${result.stdinError.message}`,
     };
   }
 
