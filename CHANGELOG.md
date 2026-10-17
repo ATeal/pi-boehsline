@@ -2,6 +2,24 @@
 
 ## Unreleased
 
+## 0.2.6 — 2026-10-17
+
+### Added
+
+- canvas: when the daemon doesn't start, the `/canvas` notice shows the last line of `.daemon.log` (e.g. the port being in use) instead of only naming the file.
+
+### Fixed
+
+- web: a search backend is benched only for a real failure (an HTTP error, a network failure, a timeout). Any other error, such as a bug in a response parser, no longer looks like an outage that benches the backend for ten minutes: it's listed as `backend: TypeError: … (search.ts:242:28)` and the chain moves on.
+- web: only a missing `web.json` counts as empty. One that exists but can't be read (permissions, a directory) is reported by `/web` and never overwritten, like one that doesn't parse.
+- web: the fetch smoke test loads `index.ts` again (it still imported `web.ts`, gone since each extension became a folder).
+- subagent: the background error names the `bg` extension instead of the old `bg.ts`.
+
+### Changed
+
+- `npm test` runs agent-link's tests that don't need a live pi (mentions, naming, relay, send-close).
+- CI runs the full suite on macOS as well as Linux (it ran only the notif-watch tests there).
+
 ## 0.2.5 — 2026-10-16
 
 ### Security
