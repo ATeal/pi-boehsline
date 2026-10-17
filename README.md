@@ -74,7 +74,7 @@ Boehsline adds about 100ms to pi's startup and about 2,800 tokens to the context
 
 ## Configuration reference
 
-Everything below goes in `~/.pi/agent/boehsline.json`, or comes from a package that supplies settings. Environment variables (`PI_WATCH_*`, `PI_MEETING_*`) still override.
+Everything below goes in `~/.pi/agent/boehsline.json`, or comes from a package that supplies settings. Environment variables (`PI_WATCH_*`, `PI_MEETING_*`) still override. The file may have `//` and `/* */` comments and trailing commas, so this example works pasted as is; `/boehsline enable` keeps your comments when it changes the list. If the file doesn't parse, every opt-in is off and pi says why when a session starts. [`defaults/boehsline.json`](defaults/boehsline.json) is a minimal file to start from.
 
 ```jsonc
 {

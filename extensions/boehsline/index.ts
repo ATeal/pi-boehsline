@@ -306,6 +306,14 @@ function configText(): string {
 }
 
 export default function boehsline(pi: ExtensionAPI): void {
+	// A boehsline.json that doesn't parse turns every opt-in off, so say so
+	// where it shows, not only in /boehsline.
+	pi.on("session_start", (_e, ctx) => {
+		if (!ctx.hasUI) return;
+		const { error } = readUserConfig();
+		if (error) ctx.ui.notify(`Boehsline config not read, so opt-ins are off: ${error}`, "warning");
+	});
+
 	// Once per session, while stash or prompt-history still fight pi for a key.
 	pi.on("session_start", (_e, ctx) => {
 		if (!ctx.hasUI) return;

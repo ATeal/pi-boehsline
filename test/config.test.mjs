@@ -7,6 +7,7 @@ import {
 	enabled,
 	loadConfig,
 	merge,
+	parseJsonc,
 	readUserConfig,
 	registerSource,
 	settingsFor,
@@ -79,6 +80,36 @@ test("setEnabled adds and removes, keeps other keys, refuses broken files", () =
 	assert.deepEqual(JSON.parse(readFileSync(path, "utf8")).watch, { a: 1 });
 	writeFileSync(path, "{broken");
 	assert.throws(() => setEnabled("x", true, path), /broken/);
+});
+
+test("the user file may be JSONC: comments and trailing commas, strings untouched", () => {
+	assert.deepEqual(parseJsonc('{ "a": "http://x//y", // c\n "b": [1, 2,], /* x */ "c": "q\\"//\\"", }'), { a: "http://x//y", b: [1, 2], c: 'q"//"' });
+	assert.deepEqual(parseJsonc('{ "s": "a,}", "t": "/* not */" }'), { s: "a,}", t: "/* not */" });
+	assert.throws(() => parseJsonc("{ nope }"));
+	// The README's configuration example, pasted as is.
+	const readme = readFileSync(new URL("../README.md", import.meta.url), "utf8");
+	const example = readme.match(/## Configuration reference[\s\S]*?```json[c]?\n([\s\S]*?)```/)[1];
+	assert.ok(Array.isArray(parseJsonc(example).enable), "README example parses");
+	const dir = mkdtempSync(join(tmpdir(), "boehsline-"));
+	writeFileSync(join(dir, "c.json"), '{\n  // opt-ins\n  "enable": ["watch"],\n}\n');
+	assert.deepEqual(readUserConfig(join(dir, "c.json")).config, { enable: ["watch"] });
+});
+
+test("setEnabled keeps a commented file's comments, editing only enable", () => {
+	const dir = mkdtempSync(join(tmpdir(), "boehsline-"));
+	const path = join(dir, "boehsline.json");
+	writeFileSync(path, '{\n  // my opt-ins\n  "enable": ["watch"], // keep\n  "watch": { "vips": ["Sam"] },\n}\n');
+	assert.deepEqual(setEnabled("meeting", true, path), ["meeting", "watch"]);
+	assert.equal(readFileSync(path, "utf8"), '{\n  // my opt-ins\n  "enable": ["meeting","watch"], // keep\n  "watch": { "vips": ["Sam"] },\n}\n');
+	// No enable list yet: added after the opening brace.
+	writeFileSync(path, '{\n  // nothing yet\n  "watch": {},\n}\n');
+	setEnabled("omlx", true, path);
+	assert.match(readFileSync(path, "utf8"), /^\{\n  "enable": \["omlx"\],\n  \/\/ nothing yet\n/);
+	assert.deepEqual(readUserConfig(path).config, { enable: ["omlx"], watch: {} });
+	// An enable mentioned only in a comment isn't the one edited.
+	writeFileSync(path, '{\n  // "enable": ["old"]\n  "enable": ["a"]\n}\n');
+	assert.throws(() => setEnabled("b", true, path), /by hand/);
+	assert.match(readFileSync(path, "utf8"), /"enable": \["a"\]/, "left as it was");
 });
 
 test("BOEHSLINE_ENABLE adds to the user file's enable list", () => {

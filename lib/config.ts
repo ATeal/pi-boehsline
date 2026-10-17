@@ -86,6 +86,51 @@ export interface ReadResult {
 	error?: string;
 }
 
+/**
+ * JSON with comments: `//` and `/* *\/` comments and trailing commas are
+ * dropped (outside strings) before JSON.parse, so a pasted README example
+ * works. Throws like JSON.parse on anything else.
+ */
+export function parseJsonc(text: string): unknown {
+	return JSON.parse(stripJsonc(text));
+}
+
+/** The text without comments or trailing commas; strings are kept byte for byte. */
+export function stripJsonc(text: string): string {
+	let out = "";
+	for (let i = 0; i < text.length; i++) {
+		const c = text[i];
+		if (c === '"') {
+			let j = i + 1;
+			while (j < text.length && text[j] !== '"') j += text[j] === "\\" ? 2 : 1;
+			out += text.slice(i, j + 1);
+			i = j;
+		} else if (c === "/" && text[i + 1] === "/") {
+			while (i < text.length && text[i] !== "\n") i++;
+			out += "\n";
+		} else if (c === "/" && text[i + 1] === "*") {
+			const end = text.indexOf("*/", i + 2);
+			i = end === -1 ? text.length : end + 1;
+			out += " ";
+		} else {
+			out += c;
+		}
+	}
+	// Trailing commas: a comma followed only by whitespace before } or ],
+	// unless it sits inside a string ("a,}").
+	return out.replace(/,(\s*[}\]])/g, (match, tail, offset) => (insideString(out, offset) ? match : tail));
+}
+
+/** Whether `offset` in comment-free JSON text falls inside a string literal. */
+function insideString(text: string, offset: number): boolean {
+	let inside = false;
+	for (let i = 0; i < offset; i++) {
+		if (text[i] === "\\" && inside) i++;
+		else if (text[i] === '"') inside = !inside;
+	}
+	return inside;
+}
+
 /** Read the user file. A missing file is an empty config; a broken one is reported, not thrown. */
 export function readUserConfig(path = userConfigPath()): ReadResult {
 	let text: string;
@@ -95,7 +140,7 @@ export function readUserConfig(path = userConfigPath()): ReadResult {
 		return { config: {} };
 	}
 	try {
-		const parsed: unknown = JSON.parse(text);
+		const parsed: unknown = parseJsonc(text);
 		if (!isPlainObject(parsed)) return { config: {}, error: `${path}: top level must be an object` };
 		return { config: parsed };
 	} catch (err) {
@@ -140,6 +185,16 @@ export function setEnabled(name: string, on: boolean, path = userConfigPath()): 
 	if (on) list.add(name);
 	else list.delete(name);
 	const next: ConfigObject = { ...config, enable: [...list].sort() };
+	let text = `${JSON.stringify(next, null, 2)}\n`;
+	let original = "";
+	try {
+		original = readFileSync(path, "utf8");
+	} catch {
+		// new file
+	}
+	// A file with comments: change only the enable list in place, so the
+	// comments survive. Plain JSON is rewritten whole, as before.
+	if (original && stripJsonc(original) !== original) text = replaceEnable(original, next.enable as string[]);
 	// Write through a symlink (dotfiles often link boehsline.json); renaming
 	// over the link itself would replace it with a plain file.
 	let target = path;
@@ -150,9 +205,37 @@ export function setEnabled(name: string, on: boolean, path = userConfigPath()): 
 	}
 	mkdirSync(dirname(target), { recursive: true });
 	const tmp = `${target}.tmp-${process.pid}`;
-	writeFileSync(tmp, `${JSON.stringify(next, null, 2)}\n`);
+	writeFileSync(tmp, text);
 	renameSync(tmp, target);
 	return next.enable as string[];
+}
+
+/**
+ * The file's text with its top-level "enable" array replaced (or added after
+ * the opening brace), comments untouched. Checked by parsing the result; if
+ * that doesn't give exactly the new list, it refuses rather than guess.
+ */
+function replaceEnable(original: string, enable: string[]): string {
+	const array = JSON.stringify(enable);
+	const stripped = stripJsonc(original);
+	const pattern = /"enable"\s*:\s*\[[^\]]*\]/g;
+	let text: string;
+	// Only edit when the stripped text has exactly one "enable" array, and
+	// the raw text has the same one (so the match isn't inside a comment).
+	const matches = stripped.match(pattern) ?? [];
+	const rawMatches = original.match(pattern) ?? [];
+	if (matches.length === 1 && rawMatches.length === 1) text = original.replace(pattern, `"enable": ${array}`);
+	else if (matches.length === 0) text = original.replace(/\{/, `{\n  "enable": ${array},`);
+	else throw new Error("can't update enable in a file with comments and more than one enable list; edit it by hand");
+	let result: unknown;
+	try {
+		result = parseJsonc(text);
+	} catch {
+		result = undefined;
+	}
+	const got = isPlainObject(result) ? stringList(result.enable as Json | undefined) : undefined;
+	if (!got || got.join() !== enable.join()) throw new Error("couldn't update enable without losing the file's comments; edit it by hand");
+	return text.endsWith("\n") ? text : `${text}\n`;
 }
 
 /** Opt-in extensions that have loaded their gate this process, and whether each is on. */
