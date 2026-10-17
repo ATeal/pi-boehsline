@@ -30,14 +30,16 @@ use) sits in the editor's top border by default, the way Claude Code frames
 the prompt: `── my-session ────────`, in the border's own colour (the `/color`
 tint when there is one; a peer name stays dim); pi's "↑ 3 more" moves to the right end, and a narrow pane
 truncates the name. The Session name row's `footer` mode puts it back at the
-right end of the footer, where a click prefills `/auto-name`.
+right end of the footer. A click on the name prefills `/auto-name` (in the
+border too, in fullscreen, where pi passes clicks to the editor).
 
 While Approval Guardian is bypassed (`/bypass`), the Bypass row picks the
 marker: `name` (the default) turns the session name red with `⚠` in front,
 `chip` shows a red `bypass` chip, `both` does both. In `name` mode, when no
 name is on screen (the name chip hidden, or nothing to show), the chip shows
 instead: the footer replaces the guardian's own warning, so bypass stays
-visible unless the row is `hidden`.
+visible unless the row is `hidden`. Clicking the red name, like the chip,
+turns the guardian back on.
 
 The Placement row, first in `/footer`, can move the chips themselves into
 that border, right of the name: `── my-session ──── dotfiles main* opus ──`.

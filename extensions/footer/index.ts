@@ -120,14 +120,14 @@ export const FOOTER_CHIPS = [
   { id: "provider", label: "Provider", example: "gh", description: "Provider, short (gh = GitHub Copilot, o = OpenAI Codex). Click: next model." },
   { id: "model", label: "Model", example: "opus", description: "Model, short (opus, sonn). Click: next model." },
   { id: "thinking", label: "Thinking", example: "med", description: "Thinking level (med, hi, xhi). Click: next level." },
-  { id: "bypass", label: "Bypass", example: "bypass", description: "While Approval Guardian is bypassed: the session name turns red with ⚠ (name), a red bypass chip (chip, or when no name shows), or both. Click the chip: turn the guardian back on." },
+  { id: "bypass", label: "Bypass", example: "bypass", description: "While Approval Guardian is bypassed: the session name turns red with ⚠ (name), a red bypass chip (chip, or when no name shows), or both. Click either: turn the guardian back on." },
   { id: "context", label: "Context", example: "42k/1m", description: "Context tokens / window, or a percent, coloured as it fills. Click: flip for this session." },
   { id: "idle", label: "Idle compaction", example: "⏲ 2:41p", description: "When idle compaction fires (54 minutes after the last request): a clock time or a countdown. /idle explains when it is missing." },
   { id: "cost", label: "Cost", example: "$0.42", description: "Session cost, or a provider budget (ollama, baseten, openrouter) as a percent (compact) or total (detailed). Click: flip for this session." },
   { id: "usage", label: "Rate limits", example: "57%", description: "Provider usage windows: Copilot premium-request share over workdays (W) with the %/d left per workday, Codex/Grok/Claude windows, compact, detailed, or mini (just ↑ speed up / ↓ slow down, hidden on pace). Click: cycle for this session." },
   { id: "boot", label: "Boot time", example: "⚡775ms", description: "⚡ startup time, until the first message. Click: recent boot stats." },
   { id: "rate", label: "Token rate", example: "99", description: "Tokens per second of the last reply (live while streaming), alone or with the time to first token. Click: flip for this session." },
-  { id: "name", label: "Session name", example: "session-name", description: "Session name, or the dim peer name other agents use: in the editor's top border, or at the right end of the footer. Click (footer): prefill /auto-name." },
+  { id: "name", label: "Session name", example: "session-name", description: "Session name, or the dim peer name other agents use: in the editor's top border, or at the right end of the footer. Click: prefill /auto-name, or while it shows bypass (red ⚠), turn the guardian back on." },
   { id: "statuses", label: "Extension statuses", example: "extension status", description: "Other extensions' statuses, on a dim line of their own." },
 ] as const;
 
@@ -2143,7 +2143,9 @@ export default function footerExtension(pi: ExtensionAPI): void {
       compactCostUsage = !compactCostUsage;
       repaint?.();
     } else if (action === "name") {
-      prefillAutoNameCommand();
+      // The red ⚠ name stands in for the bypass chip, so it acts like it.
+      if (bypassMarks("name")) void setBypassActive(false);
+      else prefillAutoNameCommand();
     } else if (action === "gitStatus") {
       prefillBashCommand("git status -s");
     } else if (action === "gitPush") {
@@ -2258,12 +2260,19 @@ export default function footerExtension(pi: ExtensionAPI): void {
               borderClickRow[key] = key === "usage" && borderClickRow.usage ? [borderClickRow.usage[0], placed[1]] : placed;
             }
           });
+          // The name starts after "── " and isn't cut when chips fit beside it.
+          if (name) borderClickRow.name = [3, 3 + visibleWidth(name)];
           return layout.line;
         }
-        return (name && nameTopBorder(name, hidden, width, borderPaint)) || piBorder(width, hidden);
+        const named = name ? nameTopBorder(name, hidden, width, borderPaint) : undefined;
+        if (!named) return piBorder(width, hidden);
+        // As nameTopBorder fits it: the room left by "── ", " ─" and the indicator.
+        const indicator = hidden > 0 ? visibleWidth(` ↑ ${hidden} more `) + 2 : 0;
+        borderClickRow.name = [3, 3 + Math.min(visibleWidth(name), width - 5 - indicator)];
+        return named;
       };
-      // Clicks on the top border's chips, fullscreen only like the footer's;
-      // everything else is the editor's.
+      // Clicks on the top border's name and chips, fullscreen only like the
+      // footer's; everything else is the editor's.
       const mouseTarget = editor as unknown as { handleMouse?(event: TuiMouseEvent): unknown };
       const editorMouse = mouseTarget.handleMouse?.bind(editor);
       mouseTarget.handleMouse = (event: TuiMouseEvent) => {

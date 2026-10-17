@@ -1373,6 +1373,20 @@ test("clicking an explicit session name prefills /auto-name", async () => {
   assert.equal(ui.editor(), "/auto-name");
 });
 
+test("clicking the red ⚠ name turns bypass off instead of prefilling /auto-name", async () => {
+  const ui = await mount({ sessionName: "footer-work" });
+  await ui.run("bypass");
+  assert.match(ui.plain(80)[0], /⚠ footer-work$/);
+  assert.deepEqual(ui.click(79, 0, 80), { handled: true });
+  assert.deepEqual(ui.guardianRequests, [true, false]);
+  assert.equal(ui.editor(), "", "no /auto-name");
+  assert.match(ui.plain(80)[0], / footer-work$/);
+  assert.doesNotMatch(ui.plain(80)[0], /⚠/);
+  // Not bypassed any more: back to prefilling.
+  ui.click(79, 0, 80);
+  assert.equal(ui.editor(), "/auto-name");
+});
+
 test("clicking a name never replaces editor text", async () => {
   const ui = await mount({ sessionName: "footer-work", editorText: "draft prompt" });
   assert.deepEqual(ui.click(79, 0, 80), { handled: true });
@@ -1649,9 +1663,15 @@ test("bypass name mode marks the name in the editor's top border too", async () 
   await withAgentDir(async () => {
     const ui = await mount({ mode: "tui", sessionName: "my-session", editorFactory: () => fakeEditor() });
     await ui.run("bypass");
-    const top = ui.editorFactory()().renderTopBorder(40, 0);
+    const editor = ui.editorFactory()({ mode: "fullscreen", requestRender() {} });
+    const top = editor.renderTopBorder(40, 0);
     assert.match(top, /^\{──\} \x1B\[91m⚠ my-session\x1B\[39m \{─+\}$/);
     assert.doesNotMatch(ui.plain()[0] ?? "", /bypass/, "the border's name shows it, so no chip");
+    // Fullscreen: a click on the red name turns bypass off; its last column counts, the fill after it doesn't.
+    assert.equal(editor.handleMouse({ type: "click", button: "left", x: 3 + "⚠ my-session".length, y: 0 }), undefined, "the space after the name");
+    assert.deepEqual(editor.handleMouse({ type: "click", button: "left", x: 3 + "⚠ my-session".length - 1, y: 0 }), { handled: true });
+    assert.deepEqual(ui.guardianRequests, [true, false]);
+    assert.doesNotMatch(editor.renderTopBorder(40, 0), /⚠/);
   });
 });
 
@@ -2132,8 +2152,11 @@ test("top-border chips are clickable in fullscreen, and other clicks reach the e
     editor.handleMouse({ type: "click", button: "left", x, y: 0 });
     await Promise.resolve();
     assert.match(ui.plain()[0], /^\/Users\/someone\/Code\/github\.com\/someone\/dotfiles /, "dir flipped to the full path");
-    assert.deepEqual(editor.handleMouse({ type: "click", button: "left", x: 3, y: 0 }), { editorGot: 0 }, "the name isn't a chip");
+    assert.deepEqual(editor.handleMouse({ type: "click", button: "left", x: 1, y: 0 }), { editorGot: 0 }, "the ── before the name isn't");
     assert.deepEqual(editor.handleMouse({ type: "click", button: "left", x, y: 2 }), { editorGot: 2 });
+    // The name prefills /auto-name, as in the footer.
+    assert.deepEqual(editor.handleMouse({ type: "click", button: "left", x: 3, y: 0 }), { handled: true });
+    assert.equal(ui.editor(), "/auto-name");
   });
 });
 
