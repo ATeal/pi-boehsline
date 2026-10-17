@@ -815,6 +815,10 @@ test("chip defaults come from settings.json, a project's .pi/settings.json first
     mkdirSync(path.join(project, ".pi"));
     writeFileSync(path.join(project, ".pi", "settings.json"), JSON.stringify({ defaultModel: "gpt-6" }));
     assert.deepEqual(readChipDefaults(project), { provider: "github-copilot", model: "gpt-6", thinking: "high" }, "project overrides per key");
+    writeFileSync(path.join(dir, "settings.json"), JSON.stringify({ defaultThinkingLevel: "xhigh", modelThinkingLevels: { "a/x": "medium", "b/y": "low", "c/z": 3 } }));
+    writeFileSync(path.join(project, ".pi", "settings.json"), JSON.stringify({ modelThinkingLevels: { "b/y": "high" } }));
+    assert.deepEqual(readChipDefaults(project).modelThinking, { "a/x": "medium", "b/y": "high" }, "per-model levels merge, project first");
+    writeFileSync(path.join(dir, "settings.json"), JSON.stringify({ defaultProvider: "github-copilot", defaultModel: "claude-opus-5.5", defaultThinkingLevel: "high" }));
     writeFileSync(path.join(project, ".pi", "settings.json"), "{ half-written");
     assert.equal(readChipDefaults(project).model, "claude-opus-5.5", "a broken project file contributes nothing");
   });
@@ -832,6 +836,10 @@ test("'unless default' hides provider, model and thinking only while they match"
   assert.equal(defaultChipHidden("model", "unless default", { ...on, model: "gpt-6" }, defaults), false);
   assert.equal(defaultChipHidden("model", "unless default", { ...on, provider: "openrouter" }, defaults), false, "same id on another provider is another route");
   assert.equal(defaultChipHidden("thinking", "unless default", { ...on, thinking: "high" }, defaults), false);
+  const perModel = { ...defaults, thinking: "xhigh", modelThinking: { "github-copilot/claude-opus-5.5": "medium" } };
+  assert.equal(defaultChipHidden("thinking", "unless default", on, perModel), true, "the model's own level beats defaultThinkingLevel");
+  assert.equal(defaultChipHidden("thinking", "unless default", { ...on, thinking: "xhigh" }, perModel), false);
+  assert.equal(defaultChipHidden("thinking", "unless default", { ...on, model: "gpt-6", thinking: "xhigh" }, perModel), true, "other models use the global default");
   assert.equal(defaultChipHidden("provider", "unless default", on, { thinking: "medium" }), false, "no default provider: always shown");
   assert.equal(defaultChipHidden("model", "unless default", on, { thinking: "medium" }), false, "no default model: always shown");
 });

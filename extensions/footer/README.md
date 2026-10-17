@@ -44,9 +44,10 @@ ignores it). `/footer` keeps it when it saves:
 Settings that belong to a chip sit indented under it: Git condition, Context
 threshold, Copilot OOO days, and a condition each for Provider, Model and
 Thinking. Set those to "unless default" to hide the chip while it matches the
-`defaultProvider`, `defaultModel` or `defaultThinkingLevel` a new session
-starts on (settings.json, a project's `.pi/settings.json` first; thinking
-falls back to pi's `medium`). Switching away shows it again.
+`defaultProvider` or `defaultModel` a new session starts on, or the thinking
+level this model starts on: its `modelThinkingLevels` entry, else
+`defaultThinkingLevel`, else pi's `medium` (settings.json, a project's
+`.pi/settings.json` first). Switching away shows it again.
 
 Reopening `/footer` keeps the session's unsaved changes; a new session starts
 from the saved file. A saved mode is where each session starts; clicking a chip

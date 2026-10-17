@@ -211,7 +211,7 @@ export const CONDITION_ROWS = [
     key: "thinkingWhen",
     chip: "thinking",
     label: "Thinking condition",
-    description: "Hide the thinking chip while it is the default thinking level in settings.json (pi's medium when unset).",
+    description: "Hide the thinking chip while it is the level this model starts on: its modelThinkingLevels entry, else defaultThinkingLevel, else pi's medium.",
     values: ["always", "unless default"],
   },
   {
@@ -371,6 +371,8 @@ export interface ChipDefaults {
   provider?: string;
   model?: string;
   thinking: string;
+  /** settings.json's modelThinkingLevels ("provider/id" → level), which beat `thinking` for that model. */
+  modelThinking?: Record<string, string>;
 }
 
 /** pi's thinking level when settings.json names none (DEFAULT_THINKING_LEVEL). */
@@ -390,12 +392,20 @@ export function readChipDefaults(cwd: string): ChipDefaults {
       return {};
     }
   };
-  const merged = { ...read(join(agentDir(), "settings.json")), ...read(join(cwd, ".pi", "settings.json")) };
+  const global = read(join(agentDir(), "settings.json"));
+  const project = read(join(cwd, ".pi", "settings.json"));
+  const merged = { ...global, ...project };
   const text = (value: unknown) => (typeof value === "string" && value ? value : undefined);
+  const levels = (value: unknown) =>
+    value && typeof value === "object" && !Array.isArray(value)
+      ? Object.fromEntries(Object.entries(value).filter((entry): entry is [string, string] => typeof entry[1] === "string"))
+      : {};
+  const modelThinking = { ...levels(global.modelThinkingLevels), ...levels(project.modelThinkingLevels) };
   return {
     provider: text(merged.defaultProvider),
     model: text(merged.defaultModel),
     thinking: text(merged.defaultThinkingLevel) ?? PI_DEFAULT_THINKING,
+    ...(Object.keys(modelThinking).length > 0 ? { modelThinking } : {}),
   };
 }
 
@@ -412,7 +422,9 @@ export function defaultChipHidden(
     // A model is the default only on the default provider: the same id elsewhere is a different route.
     return !!defaults.model && current.model === defaults.model && (!defaults.provider || current.provider === defaults.provider);
   }
-  return current.thinking === defaults.thinking;
+  // pi starts a model on its own modelThinkingLevels entry before the global default.
+  const start = defaults.modelThinking?.[`${current.provider}/${current.model}`] ?? defaults.thinking;
+  return current.thinking === start;
 }
 
 /** Minutes until a footer clock label ("2:41p") next comes round, for the idle countdown. */
