@@ -361,6 +361,26 @@ test("tk/s chip: bare live estimate while streaming, exact rate after message_en
   assert.ok(ui.plain()[0].endsWith(" 43"));
 });
 
+test("tk/s chip: a buffered burst falls back to the whole-request window", async (t) => {
+  const clock = { now: 1_000_000 };
+  t.mock.method(Date, "now", () => clock.now);
+  const ui = await mount();
+  await ui.fire("turn_start", {});
+  // The endpoint buffers, then dumps the whole reply at once: 1.3s of silence.
+  clock.now += 1_300;
+  const message = { role: "assistant", usage: { output: 0 } };
+  await ui.fire("message_start", { message });
+  await ui.fire("message_update", { message, assistantMessageEvent: { type: "text_delta", delta: "x".repeat(400) } });
+  // Every remaining delta lands within a few ms — the burst window.
+  clock.now += 11;
+  await ui.fire("message_end", { message: { role: "assistant", usage: { output: 130 } } });
+  // 130 tokens over the whole request (1.311s), not the 11ms burst, which would read as ~12,000.
+  assert.ok(ui.plain()[0].endsWith(" 99"), ui.plain()[0]);
+  ui.click(ui.plain()[0].length - 1, 0);
+  // The leading figure is still the real TTFT: turn start → first delta.
+  assert.ok(ui.plain()[0].endsWith(" 1.3s 99tk/s"), ui.plain()[0]);
+});
+
 test("rateChipShown: 'after Ns' needs the running turn, or the last one, to reach N", () => {
   assert.equal(rateChipShown(undefined, { active: false }), true);
   assert.equal(rateChipShown("always", { active: true, elapsedMs: 0 }), true);

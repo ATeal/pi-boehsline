@@ -5,7 +5,8 @@
  *   dir [⎇ repo] branch* ⇣⇡ provider model thinking [bypass] ctx/window $cost [inline statuses] ⚡boot tk/s   session-name
  * plus an optional dim row of other extension statuses (from ctx.ui.setStatus).
  * The tk/s chip is the output rate: dim and live while a reply streams, then
- * the exact figure for the last reply (usage.output over first token → end).
+ * the exact figure for the last reply (usage.output over first token → end;
+ * over the whole request when the deltas arrived as one burst).
  * It shows a bare "99"; clicking it toggles "3.1s 99tk/s", which leads with
  * the time to first token (turn start → first streamed delta). While waiting
  * for that first token the chip counts the TTFT up, dim. Color rewards
@@ -1313,6 +1314,12 @@ function formatRateChip(tokensPerSecond: number, ttftMs: number | undefined, det
 
 /** Shortest stream worth a rate: a tiny reply over a few ms reads as thousands of tk/s. */
 const MIN_RATE_WINDOW_MS = 250;
+/**
+ * Below this, the deltas arrived as one burst rather than a stream (a proxy that
+ * buffers the SSE response). The delta window then measures the burst, not the
+ * generation, so the rate falls back to the whole request (turn start → end).
+ */
+const RATE_BURST_WINDOW_MS = 100;
 /** Live-rate repaint throttle; deltas arrive far faster than anyone can read. */
 const RATE_REPAINT_MS = 250;
 /** Repaint cadence for the TTFT counter while waiting for the first token. */
@@ -3369,7 +3376,12 @@ export default function footerExtension(pi: ExtensionAPI): void {
     if (turnStartMs !== undefined) lastTurnMs = now - turnStartMs;
     const tokens = outputTokens(event.message);
     if (firstTokenMs !== undefined && tokens > 0) {
-      const elapsed = now - firstTokenMs;
+      const deltaWindow = now - firstTokenMs;
+      // A buffered stream dumps every delta in a few ms, so the delta window
+      // measures the burst, not the generation. Fall back to the whole request
+      // (turn start → end), which is honest though it folds TTFT into the rate.
+      const burst = deltaWindow < RATE_BURST_WINDOW_MS && turnStartMs !== undefined;
+      const elapsed = burst ? now - turnStartMs! : deltaWindow;
       // Aborted/errored replies and tiny blips keep the previous figure.
       if (elapsed >= MIN_RATE_WINDOW_MS) {
         lastRate = tokens / (elapsed / 1_000);
