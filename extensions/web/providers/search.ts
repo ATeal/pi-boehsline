@@ -81,6 +81,18 @@ class BackendError extends Error {
 
 const QUOTA_COOLOFF_MS = 24 * 60 * 60 * 1000; // monthly allowances: re-probe daily
 const TRANSIENT_COOLOFF_MS = 10 * 60 * 1000;
+
+/**
+ * A failure that says the backend is unreachable: undici's "fetch failed", or
+ * the request timing out. Anything else that isn't a BackendError (a
+ * TypeError in a response parser, say) is a bug here, not an outage, so it
+ * mustn't bench the backend for ten minutes.
+ */
+function isNetworkFailure(e: unknown): boolean {
+  if (!(e instanceof Error)) return false;
+  if (e.name === "AbortError" || e.name === "TimeoutError") return true;
+  return e.name === "TypeError" && /fetch failed/i.test(e.message);
+}
 /** Per-minute buckets: long enough for the window to roll, no longer. */
 const PACE_COOLOFF_MS = 60_000;
 const REQUEST_TIMEOUT_MS = 20_000;
@@ -723,9 +735,15 @@ export async function runSearchChain(
     } catch (e) {
       const err = e as Error;
       if (signal?.aborted) throw err; // user cancelled: stop the whole chain
-      const cooloff = e instanceof BackendError ? e.cooloffMs : TRANSIENT_COOLOFF_MS;
-      if (cooloff > 0) await markSkip(backend, cooloff);
-      tried.push(`${backend}: ${err.message}`);
+      if (e instanceof BackendError || isNetworkFailure(e)) {
+        const cooloff = e instanceof BackendError ? e.cooloffMs : TRANSIENT_COOLOFF_MS;
+        if (cooloff > 0) await markSkip(backend, cooloff); // never rejects
+        tried.push(`${backend}: ${err.message}`);
+      } else {
+        // A bug, not an outage: say where, don't bench, try the next one.
+        const at = err?.stack?.split("\n").find((line) => line.trim().startsWith("at "))?.trim();
+        tried.push(`${backend}: ${err?.name ?? "Error"}: ${err?.message ?? String(e)}${at ? ` (${at})` : ""}`);
+      }
       failed.push(backend);
     }
   }

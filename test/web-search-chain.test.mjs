@@ -102,3 +102,29 @@ test("a deep-tier answer carries what Perplexity billed for it", async () => {
 	assert.equal(out.backend, "perplexity");
 	assert.match(out.text, /\n\n---\n\[via perplexity · \$0\.00105\]$/);
 });
+
+test("a bug in a backend's parser is reported where it happened and doesn't bench the backend", async () => {
+	stubFetch();
+	const ok = globalThis.fetch;
+	globalThis.fetch = async (url) =>
+		new URL(String(url)).host === "api.search.brave.com" ? Response.json({ web: { results: 5 } }) : ok(url);
+	const { backend, tried } = await runSearchChain("curl follow redirects", {}, deps);
+	assert.equal(backend, "tavily");
+	assert.match(tried[0], /^brave: TypeError: .+ \(.*search\.ts:\d+:\d+\)\)$/);
+	const { loadConfig } = await import("../extensions/web/providers/config.ts");
+	assert.equal((await loadConfig()).skipUntil.brave, undefined, "not benched");
+});
+
+test("a network failure still benches the backend", async () => {
+	stubFetch();
+	const ok = globalThis.fetch;
+	globalThis.fetch = async (url) => {
+		if (new URL(String(url)).host === "api.search.brave.com") throw new TypeError("fetch failed");
+		return ok(url);
+	};
+	const { backend, tried } = await runSearchChain("curl follow redirects", {}, deps);
+	assert.equal(backend, "tavily");
+	assert.equal(tried[0], "brave: fetch failed");
+	const { loadConfig } = await import("../extensions/web/providers/config.ts");
+	assert.ok((await loadConfig()).skipUntil.brave > Date.now(), "benched");
+});
