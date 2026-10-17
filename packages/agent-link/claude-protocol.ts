@@ -7,7 +7,7 @@
 // Verified against Claude Code 2.1.224.
 
 import { readdir, readFile, mkdir, chmod, unlink, writeFile } from "node:fs/promises";
-import { readdirSync, readFileSync } from "node:fs";
+import { readdirSync, readFileSync, unlinkSync } from "node:fs";
 import { connect, createServer, type Server, type Socket } from "node:net";
 import { randomUUID } from "node:crypto";
 import { execFile } from "node:child_process";
@@ -432,6 +432,22 @@ export async function updatePeer(pid: number, patch: Record<string, unknown>): P
 export async function deregisterPeer(pid: number, sockPath?: string): Promise<void> {
   await unlink(path.join(CLAUDE_REGISTRY, `${pid}.json`)).catch(() => {});
   if (sockPath) await unlink(sockPath).catch(() => {});
+}
+
+/**
+ * deregisterPeer for process exit, where only sync work runs: a pi that exits
+ * hard (process.exit in a print-mode probe, an uncaught error) skips
+ * session_shutdown, and its registry file would otherwise linger and be read
+ * as the name of whichever process reuses the pid. Leaves a file another
+ * process has since written alone.
+ */
+export function deregisterPeerSync(pid: number, sockPath?: string): void {
+  const file = path.join(CLAUDE_REGISTRY, `${pid}.json`);
+  try {
+    const entry = JSON.parse(readFileSync(file, "utf8")) as { pid?: unknown; messagingSocketPath?: unknown };
+    if (entry.pid === pid && (!sockPath || entry.messagingSocketPath === sockPath)) unlinkSync(file);
+  } catch { /* gone already, or not ours to read */ }
+  if (sockPath) { try { unlinkSync(sockPath); } catch { /* */ } }
 }
 
 /** The display name Claude's /list-agents shows for the session bound to `sock`,

@@ -13,7 +13,7 @@
 import type { AgentEndEvent, ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-agent";
 import { Type } from "typebox";
 import {
-  ccSocksDir, bindSocket, registerPeer, updatePeer, deregisterPeer,
+  ccSocksDir, bindSocket, registerPeer, updatePeer, deregisterPeer, deregisterPeerSync,
   firstFreeName, losesNameRace,
   listClaudeSessions, resolveTarget, sendToClaude, stripEnvelope, receiptFrame, sendFrame,
   peerLabel, planDedupe, renamePeer,
@@ -317,6 +317,11 @@ export default function piMeshExtension(pi: ExtensionAPI) {
       server = await bindSocket(sockPath, (frame) => onFrame(frame));
       peerStatus = "idle";
       await registerPeer({ pid, sessionId, name: selfName, cwd, sockPath, status: peerStatus, startedAt, nameSource });
+      // session_shutdown cleans up a normal exit; this catches a hard one.
+      if (!exitHooked) {
+        exitHooked = true;
+        process.once("exit", () => deregisterPeerSync(pid, sockPath));
+      }
       syncSummaryFile();
       dbg(`started name=${selfName} pid=${pid} sock=${sockPath} session=${sessionId}`);
       if (nameSource === "derived") void settleNameRace();
@@ -329,6 +334,8 @@ export default function piMeshExtension(pi: ExtensionAPI) {
       notify(`pi-agent-link failed to start: ${(e as Error).message}`, "error");
     }
   }
+
+  let exitHooked = false;
 
   async function stop() {
     try { server?.close(); } catch { /* */ }
