@@ -287,6 +287,14 @@ function shellQuote(value: string): string {
     return `'${value.replace(/'/g, `'\\''`)}'`;
 }
 
+/**
+ * The popup's title. display-popup -T is a tmux format, so a file named
+ * `#(curl …|sh).png` would run that command; `##` is a literal `#`.
+ */
+export function popupTitle(imagePath: string): string {
+    return ` ${basename(imagePath).replace(/#/g, "##")} `;
+}
+
 /** Open an image in a tmux popup overlay; real pixels when the outer terminal can take them. */
 function openPopup(imagePath: string): void {
     const quoted = shellQuote(imagePath);
@@ -306,7 +314,7 @@ function openPopup(imagePath: string): void {
             "-h",
             "90%",
             "-T",
-            ` ${basename(imagePath)} `,
+            popupTitle(imagePath),
             // tmux runs this single argument through the default shell.
             script,
         ],
