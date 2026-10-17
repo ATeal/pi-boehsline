@@ -2,6 +2,12 @@
 
 ## Unreleased
 
+## 0.2.5 — 2026-10-16
+
+### Security
+
+- approval-guardian: 0.2.4's heredoc reading took an escaped or quoted operator as a real one, so in `xargs cat \| python3 - <<'EOF'` it judged the body as Python and dropped a `# .env` line that `xargs` would read; arguments after the heredoc (`python3 <<'EOF' reader.py`) weren't checked either. A quote, backslash or backtick before `<<`, or any argument after it that isn't a value-less flag, now keeps the old reading. Found by re-review.
+
 ## 0.2.4 — 2026-10-16
 
 ### Added
