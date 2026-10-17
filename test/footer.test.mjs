@@ -2138,6 +2138,42 @@ test("top-border placement: the editor takes the chips that fit and the footer b
   });
 });
 
+test("bottom-border placement: the chips go in the bottom border before pi's ↓, the name stays on top", async () => {
+  assert.equal(topBorderLayout("", [{ text: "dotfiles", width: 8 }], 2, 30, (t) => t, "↓").line, "─────── dotfiles ─ ↓ 2 more ──");
+  await withAgentDir(async (dir) => {
+    writeFileSync(path.join(dir, "footer.json"), JSON.stringify({ placement: "bottom border" }));
+    // A pi-tui-like editor: top border, text, bottom border, then an autocomplete row below it.
+    const editorLike = () => {
+      const editor = {
+        ...fakeEditor(),
+        renderBottomBorder: (width, hidden) => `pibottom:${width}:${hidden}`,
+        handleMouse: (event) => ({ editorGot: event.y }),
+        render: (width) => [editor.renderTopBorder(width, 0), " text", editor.renderBottomBorder(width, 0), " /autocomplete"],
+      };
+      return editor;
+    };
+    const ui = await mount({ mode: "tui", sessionName: "my-session", editorFactory: editorLike });
+    ui.plain();
+    await new Promise((resolve) => setTimeout(resolve, 20));
+    const editor = ui.editorFactory()({ mode: "fullscreen", requestRender() {} });
+    const lines = editor.render(120).map(strip);
+    const below = ui.plain();
+    assert.match(lines[0], /^\{──\} \{my-session\} \{─+\}$/, "the name alone on top");
+    assert.match(lines[2], /^\{─+\} dotfiles master\* gh opus hi 41\/1m \{──\}$/);
+    assert.deepEqual(below, [], "every chip went down into the border");
+    // Clicks find the bottom border's row even with the autocomplete row under it.
+    const x = lines[2].indexOf("dotfiles");
+    assert.deepEqual(editor.handleMouse({ type: "click", button: "left", x, y: 2 }), { handled: true });
+    await Promise.resolve();
+    assert.match(ui.plain()[0], /^\/Users\/someone\/Code\/github\.com\/someone\/dotfiles /, "dir flipped");
+    assert.deepEqual(editor.handleMouse({ type: "click", button: "left", x, y: 3 }), { editorGot: 3 }, "autocomplete row is the editor's");
+    // Top-border placement leaves pi's bottom border alone.
+    writeFileSync(path.join(dir, "footer.json"), JSON.stringify({ placement: "top border" }));
+    const top = await mount({ mode: "tui", sessionName: "s", editorFactory: editorLike });
+    assert.equal(top.editorFactory()().render(120)[2], "pibottom:120:0");
+  });
+});
+
 test("top-border chips are clickable in fullscreen, and other clicks reach the editor", async () => {
   await withAgentDir(async (dir) => {
     writeFileSync(path.join(dir, "footer.json"), JSON.stringify({ placement: "top border" }));
@@ -2170,6 +2206,11 @@ test("/footer: Placement is the first row, cycles below → top border, and save
     assert.ok(list.render(140).map(strip).some((line) => line.includes("in the editor's top border")), "its description");
     list.handleInput(" ");
     assert.match(selected(), /→ Placement\s+top border/);
+    list.handleInput(" ");
+    assert.match(selected(), /→ Placement\s+bottom border/);
+    list.handleInput(" ");
+    assert.match(selected(), /→ Placement\s+below/);
+    list.handleInput(" ");
     list.handleInput("\x1bs"); // Alt+S
     assert.equal(JSON.parse(readFileSync(path.join(dir, "footer.json"), "utf8")).placement, "top border");
     assert.equal(readFooterConfig().placement, "top border");

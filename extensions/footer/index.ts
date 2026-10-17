@@ -189,7 +189,7 @@ export interface FooterConfig {
    * name hides the chip there. Not editable in /footer; kept when it saves.
    */
   dirNames?: Record<string, string>;
-  /** "top border" puts the chips in the editor's top border, right of the name; absent means below. */
+  /** "top border" puts the chips in the editor's top border, right of the name, "bottom border" in its bottom one; absent means below. */
   placement?: string;
 }
 
@@ -275,8 +275,8 @@ export const LAYOUT_ROWS = [
   {
     key: "placement",
     label: "Placement",
-    description: "Below the editor, or in the editor's top border, right of the session name: chips that don't fit stay below, whole, in order.",
-    values: ["below", "top border"],
+    description: "Below the editor, in the editor's top border (right of the session name), or in its bottom border: chips that don't fit stay below, whole, in order.",
+    values: ["below", "top border", "bottom border"],
   },
 ] as const satisfies readonly { key: keyof FooterConfig; label: string; description: string; values: readonly string[] }[];
 
@@ -328,7 +328,8 @@ export function nameTopBorder(
  * keeps its place; chips go right-aligned after it, a prefix in footer order
  * that fits whole, and the caller leaves the rest below. undefined when no
  * chip fits, so the caller draws the name alone (nameTopBorder).
- * `starts` are the chips' first columns, for click zones.
+ * `starts` are the chips' first columns, for click zones. The bottom border
+ * uses it too, with no name and pi's ↓ arrow.
  */
 export function topBorderLayout(
   name: string,
@@ -336,8 +337,9 @@ export function topBorderLayout(
   hiddenLineCount: number,
   width: number,
   border: (text: string) => string,
+  arrow: "↑" | "↓" = "↑",
 ): { line: string; taken: number; starts: number[] } | undefined {
-  const tail = hiddenLineCount > 0 ? `─ ↑ ${hiddenLineCount} more ──` : "──";
+  const tail = hiddenLineCount > 0 ? `─ ${arrow} ${hiddenLineCount} more ──` : "──";
   const leftWidth = name ? 4 + visibleWidth(name) : 0;
   // At least one ─ (two without a name, so the line still starts as a border),
   // a space either side of the chips, then the tail.
@@ -2099,8 +2101,9 @@ export default function footerExtension(pi: ExtensionAPI): void {
    * /footer in its place) shows every chip below.
    */
   let borderTaken: number | undefined;
-  /** Click zones on the editor's top border, from its last render. */
-  let borderClickRow: FooterClickRow = {};
+  /** Click zones on the editor's top and bottom borders, from their last render. */
+  let topClickRow: FooterClickRow = {};
+  let bottomClickRow: FooterClickRow = {};
   // Clicks queue behind an in-flight switch, so a rapid double-click advances
   // twice instead of racing two reads of the same current model.
   let cycleQueue: Promise<void> = Promise.resolve();
@@ -2242,47 +2245,84 @@ export default function footerExtension(pi: ExtensionAPI): void {
       const borderColor = editor.borderColor;
       if (typeof target.renderTopBorder !== "function" || !borderColor) return editor;
       const piBorder = target.renderTopBorder.bind(editor);
+      // Read borderColor per render: pi swaps it for `!` bash mode and thinking levels.
+      const borderPaint = (text: string) => (editor.borderColor ?? borderColor)(text);
+      /** The chips for one border, when Placement puts them there. */
+      const chipsFor = (where: "top border" | "bottom border") =>
+        footerConfig.placement === where ? (borderParts?.() ?? []) : [];
+      /** Note the chips a border drew, for the footer's skip and the click zones. */
+      const placeChips = (layout: { taken: number; starts: number[] }, parts: FooterPart[], row: FooterClickRow) => {
+        borderTaken = layout.taken;
+        queueMicrotask(() => {
+          borderTaken = undefined;
+        });
+        layout.starts.forEach((start, i) => {
+          for (const [key, zone] of Object.entries(parts[i]!.zones) as Array<[FooterZoneKey, ClickZone]>) {
+            const placed: ClickZone = [zone[0] + start, zone[1] + start];
+            row[key] = key === "usage" && row.usage ? [row.usage[0], placed[1]] : placed;
+          }
+        });
+      };
       target.renderTopBorder = (width, hidden) => {
-        // Read borderColor per render: pi swaps it for `!` bash mode and thinking levels.
-        const borderPaint = (text: string) => (editor.borderColor ?? borderColor)(text);
         const name = nameShownAs("border") ? sessionNameText(ctx.ui.theme, () => tui.requestRender(), borderPaint) : "";
-        const parts = borderParts?.() ?? [];
+        const parts = chipsFor("top border");
         const layout = parts.length ? topBorderLayout(name, parts, hidden, width, borderPaint) : undefined;
-        borderClickRow = {};
+        topClickRow = {};
         if (layout) {
-          borderTaken = layout.taken;
-          queueMicrotask(() => {
-            borderTaken = undefined;
-          });
-          layout.starts.forEach((start, i) => {
-            for (const [key, zone] of Object.entries(parts[i]!.zones) as Array<[FooterZoneKey, ClickZone]>) {
-              const placed: ClickZone = [zone[0] + start, zone[1] + start];
-              borderClickRow[key] = key === "usage" && borderClickRow.usage ? [borderClickRow.usage[0], placed[1]] : placed;
-            }
-          });
+          placeChips(layout, parts, topClickRow);
           // The name starts after "── " and isn't cut when chips fit beside it.
-          if (name) borderClickRow.name = [3, 3 + visibleWidth(name)];
+          if (name) topClickRow.name = [3, 3 + visibleWidth(name)];
           return layout.line;
         }
         const named = name ? nameTopBorder(name, hidden, width, borderPaint) : undefined;
         if (!named) return piBorder(width, hidden);
         // As nameTopBorder fits it: the room left by "── ", " ─" and the indicator.
         const indicator = hidden > 0 ? visibleWidth(` ↑ ${hidden} more `) + 2 : 0;
-        borderClickRow.name = [3, 3 + Math.min(visibleWidth(name), width - 5 - indicator)];
+        topClickRow.name = [3, 3 + Math.min(visibleWidth(name), width - 5 - indicator)];
         return named;
       };
-      // Clicks on the top border's name and chips, fullscreen only like the
+      // Bottom-border placement: the chips right-aligned before pi's "↓ N more".
+      // The autocomplete list renders below that border, so render() finds
+      // which line it landed on for the clicks.
+      const bottomTarget = editor as unknown as {
+        renderBottomBorder?(width: number, hidden: number): string;
+        render(width: number): string[];
+      };
+      let bottomRow = -1;
+      let bottomLine: string | undefined;
+      if (typeof bottomTarget.renderBottomBorder === "function" && typeof bottomTarget.render === "function") {
+        const piBottom = bottomTarget.renderBottomBorder.bind(editor);
+        bottomTarget.renderBottomBorder = (width, hidden) => {
+          const parts = chipsFor("bottom border");
+          const layout = parts.length ? topBorderLayout("", parts, hidden, width, borderPaint, "↓") : undefined;
+          bottomClickRow = {};
+          bottomLine = undefined;
+          if (!layout) return piBottom(width, hidden);
+          placeChips(layout, parts, bottomClickRow);
+          bottomLine = layout.line;
+          return layout.line;
+        };
+        const editorRender = bottomTarget.render.bind(editor);
+        bottomTarget.render = (width: number) => {
+          bottomLine = undefined;
+          const lines = editorRender(width);
+          bottomRow = bottomLine === undefined ? -1 : lines.lastIndexOf(bottomLine);
+          return lines;
+        };
+      }
+      // Clicks on the borders' name and chips, fullscreen only like the
       // footer's; everything else is the editor's.
       const mouseTarget = editor as unknown as { handleMouse?(event: TuiMouseEvent): unknown };
       const editorMouse = mouseTarget.handleMouse?.bind(editor);
       mouseTarget.handleMouse = (event: TuiMouseEvent) => {
+        const row = event.y === 0 ? topClickRow : event.y === bottomRow ? bottomClickRow : undefined;
         if (
-          event.y === 0 &&
+          row &&
           tui.mode === "fullscreen" &&
           event.button === "left" &&
           (event.type === "press" || event.type === "click")
         ) {
-          const action = ZONE_ACTIONS.find(([key]) => zoneHit(borderClickRow[key], event.x))?.[1];
+          const action = ZONE_ACTIONS.find(([key]) => zoneHit(row[key], event.x))?.[1];
           if (action) {
             if (event.type === "click") runChipAction(action, event.shift === true);
             return { handled: true };
@@ -2532,14 +2572,15 @@ export default function footerExtension(pi: ExtensionAPI): void {
         }
         return { parts, samples, statuses, previewStyle, placeholder };
       };
-      borderParts = () => (enabled && footerConfig.placement === "top border" ? collect().parts : []);
+      borderParts = () => (enabled && footerConfig.placement?.endsWith(" border") ? collect().parts : []);
 
       return {
         dispose: () => {
           unsubscribe();
           footerClickRows = [];
           borderParts = undefined;
-          borderClickRow = {};
+          topClickRow = {};
+          bottomClickRow = {};
           repaint = undefined;
         },
         invalidate(): void {},
