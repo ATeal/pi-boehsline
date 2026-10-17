@@ -48,6 +48,7 @@ Each extension is a folder under [`extensions/`](extensions) with its own README
 | Extension | What it does | Adds |
 |---|---|---|
 | [approval-guardian](extensions/opt-in/approval-guardian/README.md) | Fail-closed gate: a reviewer model checks risky tool calls | `/approval-guardian` |
+| [image-prune](extensions/opt-in/image-prune/README.md) | Shrinks big tool result images on arrival, and swaps old images for a note with their path past a size threshold | `/image-prune` |
 | [watch](extensions/opt-in/watch/README.md) | Slack, bot feed and notification watcher with digests and drafts | `/watch`, `watch_items` tool |
 | [meeting](extensions/opt-in/meeting/README.md) | Live meeting copilot: questions worth asking, from the transcript | `/meeting`, `/q<N>` |
 | [omlx](extensions/opt-in/omlx/README.md) | Adds models loaded in a local oMLX server to `/model` |  |
@@ -107,6 +108,7 @@ Everything below goes in `~/.pi/agent/boehsline.json`, or comes from a package t
   },
 
   "meeting": { "qmdCollections": ["notes"], "dailyDir": "~/Notes/daily", "codeDir": "~/src" },
+  "image-prune": { "thresholdMB": 5, "keepTurns": 2, "shrinkMaxPx": 1568, "shrinkMinKB": 512 },  // "enabled": false pauses it; /image-prune now still works
   "update": { "dir": "~/dotfiles", "task": "update:pi" },  // no dir: the checkout that holds ~/.config/mise/config.toml
   "wiki-session-log": { "command": ["~/bin/pi-session-sync"] }
 }
