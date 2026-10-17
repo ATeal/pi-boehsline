@@ -102,7 +102,7 @@ What's left at startup is mostly deliberate: omlx asks your local oMLX server wh
 
 ## In CI
 
-The \`context-budget\` job runs \`node scripts/bench.mjs --check docs/benchmarks.md\`: it measures the starting context offline (a stand-in model in Claude's API format, so the count matches the table above; nothing is sent) and fails if Boehsline's total is more than 10% over the **total** in the "+ Boehsline (defaults)" row. When growth is worth it, rerun \`node scripts/bench.mjs\` and update this file in the same change.
+The `context-budget` job runs `node scripts/bench.mjs --check docs/benchmarks.md`: it measures the starting context offline (a stand-in model in Claude's API format, so the count matches the table above; nothing is sent) and fails if Boehsline's total is more than 10% over the **total** in the "+ Boehsline (defaults)" row. When growth is worth it, rerun `node scripts/bench.mjs` and update this file in the same change.
 
 ## Method
 
