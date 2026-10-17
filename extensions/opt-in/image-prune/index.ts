@@ -21,7 +21,13 @@ import { createHash } from "node:crypto";
 import { existsSync, mkdirSync, statSync, writeFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { isAbsolute, join, resolve } from "node:path";
-import type { ContextEditEntryDraft, ExtensionAPI, ExtensionContext, ProjectedSessionEntry } from "@earendil-works/pi-coding-agent";
+import {
+	type ContextEditEntryDraft,
+	type ExtensionAPI,
+	type ExtensionContext,
+	type ProjectedSessionEntry,
+	resizeImage,
+} from "@earendil-works/pi-coding-agent";
 import { settingsFor } from "../../../lib/config.ts";
 import { optIn } from "../../../lib/opt-in.ts";
 import {
@@ -34,6 +40,9 @@ import {
 	plan,
 	replaceImages,
 	scan,
+	type Settings,
+	shouldShrink,
+	shrinkNote,
 	toolCallPaths,
 } from "./prune.ts";
 
@@ -87,6 +96,47 @@ export function drafts(
 	});
 }
 
+type Block = { type: string; [key: string]: unknown };
+
+/**
+ * Re-encode big images in a tool result: at most shrinkMaxPx on the long edge,
+ * and under shrinkMinKB of base64. pi's resizer tries PNG first and keeps it
+ * when it fits, so a 1500x2000 camera photo arrives as a 3.3 MB PNG when the
+ * same photo is ~0.4 MB as JPEG. Returns null when nothing changed.
+ */
+export async function shrinkContent(
+	content: Block[],
+	s: Settings,
+	resize: typeof resizeImage = resizeImage,
+): Promise<{ content: Block[]; before: number; after: number } | null> {
+	let changed = false;
+	let before = 0;
+	let after = 0;
+	const out: Block[] = [];
+	for (const block of content) {
+		const img = block as unknown as ImageBlock;
+		if (block.type !== "image" || typeof img.data !== "string" || !shouldShrink(img, s)) {
+			out.push(block);
+			continue;
+		}
+		const r = await resize(Buffer.from(img.data, "base64"), img.mimeType, {
+			maxWidth: s.shrinkMaxPx,
+			maxHeight: s.shrinkMaxPx,
+			maxBytes: s.shrinkMinKB * 1024,
+		}).catch(() => null);
+		if (!r || r.data.length >= img.data.length) {
+			out.push(block);
+			continue;
+		}
+		changed = true;
+		before += img.data.length;
+		after += r.data.length;
+		out.push({ type: "text", text: shrinkNote({ bytes: img.data.length, mimeType: img.mimeType }, { ...r, bytes: r.data.length }) });
+		out.push({ type: "image", data: r.data, mimeType: r.mimeType });
+	}
+	return changed ? { content: out, before, after } : null;
+}
+
 function settings() {
 	return normalize(settingsFor(NAME, { ...DEFAULTS }));
 }
@@ -95,6 +145,15 @@ function main(pi: ExtensionAPI) {
 	// `/image-prune now` can't append entries itself (commands have no way to);
 	// it arms a forced batch for the next turn_end.
 	let forceNext = false;
+
+	pi.on("tool_result", async (event) => {
+		const s = settings();
+		if (!s.shrink) return;
+		const r = await shrinkContent(event.content as unknown as Block[], s);
+		if (!r) return;
+		// Replacing content drops structuredContent unless it's passed along.
+		return { content: r.content as never, structuredContent: event.structuredContent };
+	});
 
 	pi.on("turn_end", (event, ctx) => {
 		const force = forceNext;

@@ -4,7 +4,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { test } from "node:test";
 
-import { drafts, saveImage, status } from "../extensions/opt-in/image-prune/index.ts";
+import { drafts, saveImage, shrinkContent, status } from "../extensions/opt-in/image-prune/index.ts";
 import {
 	base64Bytes,
 	decodedBytes,
@@ -14,12 +14,14 @@ import {
 	plan,
 	replaceImages,
 	scan,
+	shouldShrink,
+	shrinkNote,
 	toolCallPaths,
 	turnCutoff,
 } from "../extensions/opt-in/image-prune/prune.ts";
 
 const MB = 1024 * 1024;
-const SETTINGS = { enabled: true, thresholdMB: 5, keepTurns: 2 };
+const SETTINGS = { enabled: true, thresholdMB: 5, keepTurns: 2, shrink: true, shrinkMaxPx: 1568, shrinkMinKB: 512 };
 
 /** An image whose base64 is `bytes` characters long. */
 const image = (bytes, mimeType = "image/png") => ({ type: "image", data: "A".repeat(bytes), mimeType });
@@ -39,7 +41,7 @@ const call = (id, args) => ({ type: "toolCall", id, name: "read", arguments: arg
 
 test("settings: bad values fall back to the defaults", () => {
 	assert.deepEqual(normalize({}), SETTINGS);
-	assert.deepEqual(normalize({ enabled: false, thresholdMB: 2.5, keepTurns: 3.9 }), { enabled: false, thresholdMB: 2.5, keepTurns: 3 });
+	assert.deepEqual(normalize({ enabled: false, thresholdMB: 2.5, keepTurns: 3.9 }), { ...SETTINGS, enabled: false, thresholdMB: 2.5, keepTurns: 3 });
 	assert.deepEqual(normalize({ thresholdMB: "9", keepTurns: -1 }), SETTINGS);
 });
 
@@ -213,7 +215,7 @@ test("end to end: turn_end drafts apply through pi's SessionManager and drop the
 		const { default: ext } = await import(`../extensions/opt-in/image-prune/index.ts?e2e=${Math.random()}`);
 		const s = stubPi();
 		await ext(s.pi);
-		assert.deepEqual(s.names(), ["command:image-prune", "on:turn_end"]);
+		assert.deepEqual(s.names(), ["command:image-prune", "on:tool_result", "on:turn_end"]);
 
 		const sm = SessionManager.inMemory("/tmp");
 		const ts = Date.now();
@@ -240,4 +242,46 @@ test("end to end: turn_end drafts apply through pi's SessionManager and drop the
 		delete process.env.BOEHSLINE_ENABLE;
 		delete process.env.PI_CODING_AGENT_DIR;
 	}
+});
+
+test("shrink: only big raster images qualify, and the setting turns it off", () => {
+	assert.equal(shouldShrink(image(600 * 1024), SETTINGS), true);
+	assert.equal(shouldShrink(image(400 * 1024), SETTINGS), false);
+	assert.equal(shouldShrink(image(600 * 1024, "image/gif"), SETTINGS), false);
+	assert.equal(shouldShrink(image(600 * 1024, "image/jpeg"), SETTINGS), true);
+	assert.equal(shouldShrink(image(600 * 1024), { ...SETTINGS, shrink: false }), false);
+	assert.deepEqual(normalize({ shrink: false, shrinkMaxPx: 1000.7, shrinkMinKB: "x" }), { ...SETTINGS, shrink: false, shrinkMaxPx: 1000 });
+});
+
+test("shrink: the note names both sizes and the coordinate scale", () => {
+	const n = shrinkNote(
+		{ bytes: 3.3 * MB, mimeType: "image/png" },
+		{ bytes: 300 * 1024, mimeType: "image/jpeg", width: 1176, height: 1568, originalWidth: 1500, originalHeight: 2000 },
+	);
+	assert.match(n, /PNG 3\.3 MB → JPEG 300 KB at 1176x1568/);
+	assert.match(n, /original 1500x2000; multiply coordinates by 1\.28/);
+});
+
+test("shrink: big images are re-encoded with a note; small, text and unhelpful results pass through", async () => {
+	const calls = [];
+	const resize = async (bytes, mimeType, opts) => {
+		calls.push(opts);
+		return { data: "B".repeat(100 * 1024), mimeType: "image/jpeg", width: 1176, height: 1568, originalWidth: 1500, originalHeight: 2000, wasResized: true };
+	};
+	const big = image(3 * MB);
+	const small = image(100 * 1024);
+	const r = await shrinkContent([text("Read image file [image/png]"), big, small], SETTINGS, resize);
+	assert.ok(r);
+	assert.equal(r.before, 3 * MB);
+	assert.equal(r.after, 100 * 1024);
+	assert.deepEqual(calls, [{ maxWidth: 1568, maxHeight: 1568, maxBytes: 512 * 1024 }]);
+	assert.equal(r.content.length, 4);
+	assert.match(r.content[1].text, /^\[image-prune: shrank PNG/);
+	assert.equal(r.content[2].mimeType, "image/jpeg");
+	assert.equal(r.content[3], small);
+
+	assert.equal(await shrinkContent([text("hi"), small], SETTINGS, resize), null);
+	assert.equal(await shrinkContent([big], SETTINGS, async () => null), null);
+	assert.equal(await shrinkContent([big], SETTINGS, async () => { throw new Error("no photon"); }), null);
+	assert.equal(await shrinkContent([big], { ...SETTINGS, shrink: false }, resize), null);
 });

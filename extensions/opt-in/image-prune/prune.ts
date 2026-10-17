@@ -28,9 +28,22 @@ export interface Settings {
 	enabled: boolean;
 	thresholdMB: number;
 	keepTurns: number;
+	/** Shrink large images in tool results as they arrive (before they ever enter context). */
+	shrink: boolean;
+	/** Longest edge after shrinking. Anthropic downsamples anything past ~1568 px anyway. */
+	shrinkMaxPx: number;
+	/** Only images whose base64 is larger than this are shrunk; the result is always under it. */
+	shrinkMinKB: number;
 }
 
-export const DEFAULTS: Settings = { enabled: true, thresholdMB: 5, keepTurns: 2 };
+export const DEFAULTS: Settings = {
+	enabled: true,
+	thresholdMB: 5,
+	keepTurns: 2,
+	shrink: true,
+	shrinkMaxPx: 1568,
+	shrinkMinKB: 512,
+};
 
 const MB = 1024 * 1024;
 
@@ -42,7 +55,28 @@ export function normalize(raw: Partial<Record<string, unknown>>): Settings {
 		enabled: raw.enabled !== false,
 		thresholdMB: num(raw.thresholdMB, DEFAULTS.thresholdMB),
 		keepTurns: Math.floor(num(raw.keepTurns, DEFAULTS.keepTurns)),
+		shrink: raw.shrink !== false,
+		shrinkMaxPx: Math.max(1, Math.floor(num(raw.shrinkMaxPx, DEFAULTS.shrinkMaxPx))),
+		shrinkMinKB: num(raw.shrinkMinKB, DEFAULTS.shrinkMinKB),
 	};
+}
+
+/** Whether an incoming image is big enough to be worth re-encoding. */
+export function shouldShrink(img: ImageBlock, s: Pick<Settings, "shrink" | "shrinkMinKB">): boolean {
+	return s.shrink && img.data.length > s.shrinkMinKB * 1024 && /^image\/(png|jpe?g|webp|bmp|tiff?)$/i.test(img.mimeType);
+}
+
+/** The note placed before a shrunk image so the model knows what it is looking at. */
+export function shrinkNote(
+	before: { bytes: number; mimeType: string },
+	after: { bytes: number; mimeType: string; width: number; height: number; originalWidth: number; originalHeight: number },
+): string {
+	const fmt = (m: string) => (m.split("/")[1] ?? m).toUpperCase();
+	const dims =
+		after.width !== after.originalWidth
+			? ` (original ${after.originalWidth}x${after.originalHeight}; multiply coordinates by ${(after.originalWidth / after.width).toFixed(2)})`
+			: "";
+	return `[image-prune: shrank ${fmt(before.mimeType)} ${formatBytes(before.bytes)} → ${fmt(after.mimeType)} ${formatBytes(after.bytes)} at ${after.width}x${after.height}${dims}. Read the file again with a smaller crop if fine detail matters.]`;
 }
 
 export function isImage(block: unknown): block is ImageBlock {
