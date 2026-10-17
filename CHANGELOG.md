@@ -2,9 +2,23 @@
 
 ## Unreleased
 
+## 0.2.3 — 2026-10-16
+
+### Security
+
+- canvas: an `html-plan` section ran same-origin with the canvas page, so its script could reach the page and post to `/send`, typing into pi; an `html` section could do the same by opening an unsandboxed popup on the daemon's origin. Both can come from any file path, an untrusted repo included. Plan frames are now opaque-origin like html, and anything served that can run script (html, svg, xml) carries a CSP `sandbox`, so it stays opaque even in a popup. A plan's answers still survive a reload: the page keeps them per section and hands them back through the frame's name.
+- image-preview: `/preview`'s popup title is a tmux format, so an image named `#(cmd).png` ran `cmd`. Every `#` is now doubled.
+
 ### Added
 
 - **skill-modes (opt-in).** Sticky skill modes, moved here from Eric's dotfiles: a skill with `mode: true` stays on after `/skill:<name>` and adds a one-line reminder to each run until `/mode off`. Turn it on with `/boehsline enable skill-modes`.
+- `boehsline.json` may have `//` and `/* */` comments and trailing commas, so the README's examples work pasted as is. `/boehsline enable` keeps the comments (it edits only the `enable` list), and a file that doesn't parse gets a warning when a session starts instead of silently turning every opt-in off.
+
+### Fixed
+
+- Three unhandled promise rejections that could end pi: provider-usage rethrowing inside background refreshes (now logged to `provider-usage.log` in the agent dir, along with the fetch failed/recovered lines that used to garble the footer through `console.error`), canvas `ensureDaemon` when the canvas root can't be created or the spawn fails, and canvas status runs.
+- auto-session-name: without OpenCode Go, every session warned "auto-name gave up". The session's own model now names it when none of the default models has credentials; an explicit `PI_AUTO_NAME_MODEL` list never falls back; with no usable model it stays quiet.
+- `defaults/boehsline.json` is a safe starting file: no opt-ins on (it enabled omlx, which needs a local server) and no stale `wiki-session-log` setting.
 
 ## 0.2.2 — 2026-10-16
 
