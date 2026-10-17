@@ -120,7 +120,7 @@ export const FOOTER_CHIPS = [
   { id: "provider", label: "Provider", example: "gh", description: "Provider, short (gh = GitHub Copilot, o = OpenAI Codex). Click: next model." },
   { id: "model", label: "Model", example: "opus", description: "Model, short (opus, sonn). Click: next model." },
   { id: "thinking", label: "Thinking", example: "med", description: "Thinking level (med, hi, xhi). Click: next level." },
-  { id: "bypass", label: "Bypass", example: "bypass", description: "Shown while Approval Guardian is bypassed. Click: turn the guardian back on." },
+  { id: "bypass", label: "Bypass", example: "bypass", description: "While Approval Guardian is bypassed: the session name turns red with ⚠ (name), a red bypass chip (chip, or when no name shows), or both. Click the chip: turn the guardian back on." },
   { id: "context", label: "Context", example: "42k/1m", description: "Context tokens / window, or a percent, coloured as it fills. Click: flip for this session." },
   { id: "idle", label: "Idle compaction", example: "⏲ 2:41p", description: "When idle compaction fires (54 minutes after the last request): a clock time or a countdown. /idle explains when it is missing." },
   { id: "cost", label: "Cost", example: "$0.42", description: "Session cost, or a provider budget (ollama, baseten, openrouter) as a percent (compact) or total (detailed). Click: flip for this session." },
@@ -157,6 +157,7 @@ export const CHIP_MODES: Partial<Record<FooterChipId, readonly string[]>> = {
   usage: ["compact", "detailed", "mini"],
   rate: ["number", "with TTFT"],
   name: ["border", "footer"],
+  bypass: ["name", "chip", "both"],
 };
 
 /** What footer.json holds, normalized: every chip has a mode if it has modes, every line chip a place. */
@@ -2189,11 +2190,31 @@ export default function footerExtension(pi: ExtensionAPI): void {
   ): string {
     const sessionName = pi.getSessionName();
     const peerName = sessionName ? "" : peer.read(requestRender);
+    // Bypassed: red with ⚠, whatever the tint, so it can't be missed.
+    if (bypassMarks("name") && (sessionName || peerName)) return color(BRIGHT_RED, `⚠ ${sessionName || peerName}`);
     const tint = sessionColorAnsi();
     return sessionName ? (tint ? paint(tint, sessionName) : untinted(sessionName))
       : peerName ? theme.fg("dim", peerName)
       : "";
   }
+
+  /** Whether bypass marks the name or the chip, by the Bypass row's mode (hidden: neither). */
+  const bypassMarks = (where: "name" | "chip"): boolean => {
+    if (!bypassed || footerConfig.hidden.has("bypass")) return false;
+    const mode = chipMode(footerConfig, "bypass");
+    return mode === "both" || mode === where;
+  };
+  /**
+   * The bypass chip shows in chip and both modes, and in name mode when no
+   * name is on screen to mark: the footer took over the guardian's warning,
+   * so bypass must stay visible unless the row is hidden.
+   */
+  const bypassChipShown = (requestRender: () => void): boolean => {
+    if (bypassMarks("chip")) return true;
+    if (!bypassMarks("name")) return false;
+    const nameOnScreen = enabled && !footerConfig.hidden.has("name") && !!(pi.getSessionName() || peer.read(requestRender));
+    return !nameOnScreen;
+  };
 
   const nameShownAs = (mode: string): boolean =>
     enabled && !footerConfig.hidden.has("name") && chipMode(footerConfig, "name") === mode;
@@ -2354,7 +2375,7 @@ export default function footerExtension(pi: ExtensionAPI): void {
               ? color(BRIGHT_YELLOW, shortThinking(pi.getThinkingLevel()))
               : "",
           ],
-          ["bypass", bypassed ? color(BRIGHT_RED, "bypass") : ""],
+          ["bypass", bypassChipShown(requestRender) ? color(BRIGHT_RED, "bypass") : ""],
           // context-length / context-window share one segment (no spaces around "/"),
           // or a single percent when the chip is toggled; hidden below the
           // /footer threshold.

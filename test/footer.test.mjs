@@ -1601,6 +1601,60 @@ test("/bypass drives the guardian and shows a bright red marker", async () => {
   assert.doesNotMatch(ui.plain().join("\n"), /bypass/);
 });
 
+test("bypass name mode (the default): the session name turns red with ⚠ instead of a chip", async () => {
+  assert.equal(CHIP_MODES.bypass?.[0], "name");
+  const ui = await mount({ sessionName: "my-session" });
+  await ui.run("bypass");
+  assert.match(ui.plain()[0], /⚠ my-session$/);
+  assert.doesNotMatch(ui.plain()[0], /bypass/, "no chip while the name shows it");
+  assert.match(ui.raw()[0], /\x1B\[91m⚠ my-session\x1B\[39m/, "bright red, over cyan");
+  await ui.run("bypass");
+  assert.match(ui.plain()[0], / my-session$/, "back to the plain name");
+  assert.doesNotMatch(ui.plain()[0], /⚠/);
+});
+
+test("bypass name mode falls back to the chip when no name is on screen", async () => {
+  // No session name and no peer name.
+  const unnamed = await mount();
+  await unnamed.run("bypass");
+  assert.match(unnamed.plain()[0], /hi bypass /);
+  // A hidden name chip.
+  await withAgentDir(async (dir) => {
+    writeFileSync(path.join(dir, "footer.json"), JSON.stringify({ hidden: ["name"], modes: { name: "footer" } }));
+    const ui = await mount({ sessionName: "my-session" });
+    await ui.run("bypass");
+    assert.match(ui.plain()[0], /hi bypass /);
+    assert.doesNotMatch(ui.plain()[0], /my-session/);
+  });
+});
+
+test("bypass both, chip and hidden modes", async () => {
+  const cases = [
+    [{ bypass: "both" }, [], /hi bypass .*⚠ my-session$/],
+    [{ bypass: "chip" }, [], /hi bypass .* my-session$/],
+    [{}, ["bypass"], /^(?!.*bypass)(?!.*⚠).* my-session$/],
+  ];
+  for (const [modes, hidden, expected] of cases) {
+    await withAgentDir(async (dir) => {
+      writeFileSync(path.join(dir, "footer.json"), JSON.stringify({ hidden, modes: { name: "footer", ...modes } }));
+      const ui = await mount({ sessionName: "my-session" });
+      await ui.run("bypass");
+      assert.match(ui.plain()[0], expected, JSON.stringify({ modes, hidden }));
+      if (modes.bypass === "chip") assert.doesNotMatch(ui.plain()[0], /⚠/);
+    });
+  }
+});
+
+test("bypass name mode marks the name in the editor's top border too", async () => {
+  await withAgentDir(async () => {
+    const ui = await mount({ mode: "tui", sessionName: "my-session", editorFactory: () => fakeEditor() });
+    await ui.run("bypass");
+    const top = ui.editorFactory()().renderTopBorder(40, 0);
+    assert.match(top, /^\{──\} \x1B\[91m⚠ my-session\x1B\[39m \{─+\}$/);
+    assert.doesNotMatch(ui.plain()[0] ?? "", /bypass/, "the border's name shows it, so no chip");
+  });
+});
+
 test("clicking the bypass marker turns bypass off", async () => {
   const ui = await mount();
   await ui.run("bypass");
@@ -2132,7 +2186,7 @@ test("/footer lists every chip with its live value and saves toggles to footer.j
     assert.match(shown[1], /j\/k select · J\/K or ⇧↑\/⇧↓ move/);
     assert.ok(shown.some((line) => /Directory\s+dotfiles\s+name/.test(line)), shown.join("\n"));
     assert.ok(shown.some((line) => /Context\s+41\/1m\s+tokens/.test(line)));
-    assert.ok(shown.some((line) => /Bypass\s+—\s+shown/.test(line)), "a chip with nothing to show gets a dash");
+    assert.ok(shown.some((line) => /Bypass\s+—\s+name/.test(line)), "a chip with nothing to show gets a dash");
     assert.ok(shown.some((line) => line.includes("Working directory: its name, or the full path.")), "selected row's description");
     const raw = list.render(140);
     assert.match(raw.find((line) => strip(line).includes("Directory")), /\x1B\[[0-9;]*mdotfiles/, "samples keep the footer's colours");

@@ -32,6 +32,13 @@ tint when there is one; a peer name stays dim); pi's "↑ 3 more" moves to the r
 truncates the name. The Session name row's `footer` mode puts it back at the
 right end of the footer, where a click prefills `/auto-name`.
 
+While Approval Guardian is bypassed (`/bypass`), the Bypass row picks the
+marker: `name` (the default) turns the session name red with `⚠` in front,
+`chip` shows a red `bypass` chip, `both` does both. In `name` mode, when no
+name is on screen (the name chip hidden, or nothing to show), the chip shows
+instead: the footer replaces the guardian's own warning, so bypass stays
+visible unless the row is `hidden`.
+
 The Placement row, first in `/footer`, can move the chips themselves into
 that border, right of the name: `── my-session ──── dotfiles main* opus ──`.
 Chips go up in footer order while they fit whole; the rest stay below, so a
