@@ -54,6 +54,7 @@ import { homedir, loadavg } from "node:os";
 import { basename, dirname, join, resolve } from "node:path";
 
 import {
+  CustomEditor,
   VERSION as RUNNING_PI_VERSION,
   type ExtensionAPI,
   type ExtensionContext,
@@ -126,7 +127,7 @@ export const FOOTER_CHIPS = [
   { id: "usage", label: "Rate limits", example: "57%", description: "Provider usage windows: Copilot premium-request share over workdays (W) with the %/d left per workday, Codex/Grok/Claude windows, compact, detailed, or mini (just ↑ speed up / ↓ slow down, hidden on pace). Click: cycle for this session." },
   { id: "boot", label: "Boot time", example: "⚡775ms", description: "⚡ startup time, until the first message. Click: recent boot stats." },
   { id: "rate", label: "Token rate", example: "99", description: "Tokens per second of the last reply (live while streaming), alone or with the time to first token. Click: flip for this session." },
-  { id: "name", label: "Session name", example: "session-name", description: "Session name, or the dim peer name other agents use. Click: prefill /auto-name." },
+  { id: "name", label: "Session name", example: "session-name", description: "Session name, or the dim peer name other agents use: in the editor's top border, or at the right end of the footer. Click (footer): prefill /auto-name." },
   { id: "statuses", label: "Extension statuses", example: "extension status", description: "Other extensions' statuses, on a dim line of their own." },
 ] as const;
 
@@ -155,6 +156,7 @@ export const CHIP_MODES: Partial<Record<FooterChipId, readonly string[]>> = {
   // compact stays first (the default); a click cycles compact → detailed → mini.
   usage: ["compact", "detailed", "mini"],
   rate: ["number", "with TTFT"],
+  name: ["border", "footer"],
 };
 
 /** What footer.json holds, normalized: every chip has a mode if it has modes, every line chip a place. */
@@ -277,6 +279,33 @@ export function contextAboveThreshold(threshold: string | undefined, tokens: num
   const n = Number(match[1]);
   return match[2] === "k" ? tokens > n * 1000 : !!window && tokens > (window * n) / 100;
 }
+
+/**
+ * The editor's top border with the session name in it, the way Claude Code
+ * frames the prompt: `── name ──────── ↑ 3 more ──`. pi's own scroll
+ * indicator moves to the right end. undefined when the line is too narrow,
+ * so the caller keeps pi's border.
+ */
+export function nameTopBorder(
+  name: string,
+  hiddenLineCount: number,
+  width: number,
+  border: (text: string) => string,
+): string | undefined {
+  const right = hiddenLineCount > 0 ? ` ↑ ${hiddenLineCount} more ` : "";
+  const rightWidth = right ? visibleWidth(right) + 2 : 0;
+  // "──" + " " + name + " " + at least one "─", then the indicator.
+  const maxName = width - 5 - rightWidth;
+  if (!name || maxName < 3) return undefined;
+  const shown = truncateToWidth(name, maxName, "…");
+  const fill = width - 4 - visibleWidth(shown) - rightWidth;
+  return `${border("──")} ${shown} ${border("─".repeat(fill) + (right ? `${right}──` : ""))}`;
+}
+
+/** Tags the footer's editor factory, so a reload or /new unwraps it instead of stacking. */
+const NAME_BORDER_BASE = "__footerNameBorderBase";
+type EditorFactory = NonNullable<ReturnType<ExtensionContext["ui"]["getEditorComponent"]>>;
+type TaggedEditorFactory = EditorFactory & { [NAME_BORDER_BASE]?: EditorFactory | null };
 
 /** A chip's saved mode, or its default. */
 export function chipMode(config: FooterConfig, id: FooterChipId): string | undefined {
@@ -2038,6 +2067,63 @@ export default function footerExtension(pi: ExtensionAPI): void {
     ctx.ui.setEditorText(`! ${command}`);
   }
 
+  /**
+   * The session name, or the dim name other agents use to reach this session.
+   * A /color'd session names itself in that color, matching the editor
+   * border. Only a name you chose: a peer name pi-claude-link derived stays
+   * dim, because it says "nobody named this" and a bright color would claim
+   * otherwise. Untinted, a chosen name is cyan, or `untinted` (the editor
+   * border passes its own color).
+   */
+  function sessionNameText(
+    theme: { fg(color: "dim", text: string): string },
+    requestRender: () => void,
+    untinted: (text: string) => string = (text) => color(CYAN, text),
+  ): string {
+    const sessionName = pi.getSessionName();
+    const peerName = sessionName ? "" : peer.read(requestRender);
+    const tint = sessionColorAnsi();
+    return sessionName ? (tint ? paint(tint, sessionName) : untinted(sessionName))
+      : peerName ? theme.fg("dim", peerName)
+      : "";
+  }
+
+  const nameShownAs = (mode: string): boolean =>
+    enabled && !footerConfig.hidden.has("name") && chipMode(footerConfig, "name") === mode;
+  const nameInFooter = () => nameShownAs("footer");
+
+  /**
+   * Put the session name in the editor's top border (the name chip's border
+   * mode). Wraps whatever editor is installed, like cursor-focus and
+   * prompt-history, and only replaces pi's renderTopBorder, so their changes
+   * and the `!` border color stay.
+   */
+  function installNameBorder(ctx: ExtensionContext): void {
+    if (ctx.mode !== "tui") return;
+    let previous = ctx.ui.getEditorComponent();
+    while (previous && NAME_BORDER_BASE in previous) {
+      previous = (previous as TaggedEditorFactory)[NAME_BORDER_BASE] ?? undefined;
+    }
+    const factory: EditorFactory = (tui, theme, keybindings) => {
+      const editor = previous?.(tui, theme, keybindings) ?? new CustomEditor(tui, theme, keybindings);
+      // protected in pi-tui's Editor: the hook its subclasses override. An
+      // editor that isn't pi-tui's (no such hook, no borderColor) is left as is.
+      const target = editor as unknown as { renderTopBorder?(width: number, hidden: number): string };
+      const borderColor = editor.borderColor;
+      if (typeof target.renderTopBorder !== "function" || !borderColor) return editor;
+      const piBorder = target.renderTopBorder.bind(editor);
+      target.renderTopBorder = (width, hidden) => {
+        // Read borderColor per render: pi swaps it for `!` bash mode and thinking levels.
+        const borderPaint = (text: string) => (editor.borderColor ?? borderColor)(text);
+        const name = nameShownAs("border") ? sessionNameText(ctx.ui.theme, () => tui.requestRender(), borderPaint) : "";
+        return (name && nameTopBorder(name, hidden, width, borderPaint)) || piBorder(width, hidden);
+      };
+      return editor;
+    };
+    (factory as TaggedEditorFactory)[NAME_BORDER_BASE] = previous ?? null;
+    ctx.ui.setEditorComponent(factory);
+  }
+
   function apply(ctx: ExtensionContext | ExtensionCommandContext): void {
     if (!ctx.hasUI) return;
     if (!enabled) {
@@ -2294,21 +2380,11 @@ export default function footerExtension(pi: ExtensionAPI): void {
           };
           const previewEmpty = previewChip !== undefined && !chips.some(([id, text]) => id === previewChip && text);
 
-          // Fall back to the name other agents use to reach this session.
-          const sessionName = pi.getSessionName();
-          const peerName = sessionName ? "" : peer.read(requestRender);
-          // A /color'd session names itself in that color, matching the editor
-          // border. Only a name you chose: a peer name pi-claude-link derived
-          // stays dim, because it says "nobody named this" and a bright color
-          // would claim otherwise.
-          const tint = sessionColorAnsi();
-          const nameText =
-            sessionName ? (tint ? paint(tint, sessionName) : color(CYAN, sessionName))
-            : peerName ? theme.fg("dim", peerName)
-            : "";
+          const nameText = sessionNameText(theme, requestRender);
           if (nameText) samples.set("name", nameText);
           const nameShown = nameText || (previewChip === "name" ? placeholder("name") : "");
-          const right = previewChip ? previewStyle("name", nameShown) : footerConfig.hidden.has("name") ? "" : nameText;
+          // In border mode the editor's top border carries the name instead.
+          const right = previewChip ? previewStyle("name", nameShown) : nameInFooter() ? nameText : "";
 
           // Wrap, don't truncate: chips fill a row and whole chips move down
           // to the next row when the terminal is too narrow, so nothing is
@@ -2892,6 +2968,7 @@ export default function footerExtension(pi: ExtensionAPI): void {
     sessionEdited = false;
     applySavedModes();
     apply(ctx);
+    installNameBorder(ctx);
     // Renders are event-driven, so an idle footer would otherwise miss a peer
     // name that lands after the last startup paint — until the next keystroke.
     for (const delay of PEER_SETTLE_DELAYS_MS) {

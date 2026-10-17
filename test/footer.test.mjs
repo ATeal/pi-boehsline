@@ -37,6 +37,7 @@ import footer, {
   DEFAULT_CHIP_ORDER,
   FOOTER_CHIPS,
   minutesUntilClock,
+  nameTopBorder,
   readFooterConfig,
   writeFooterConfig,
   worktreeRepo,
@@ -47,6 +48,9 @@ const PORCELAIN = "A  staged.ts\n M edited.ts\n?? new.ts\n";
 // Mounts outside withAgentDir still read footer.json (and write the boot log);
 // keep them off the real ~/.pi/agent so hidden chips there can't break tests.
 process.env.PI_CODING_AGENT_DIR = mkdtempSync(path.join(tmpdir(), "pi-agent-dir-default-"));
+// Most tests check the name at the footer's right end; border mode (the
+// default) moves it into the editor and has its own tests.
+writeFileSync(path.join(process.env.PI_CODING_AGENT_DIR, "footer.json"), JSON.stringify({ modes: { name: "footer" } }));
 // The session-name chip reads ~/.claude/sessions/<pid>.json; a stale file in the
 // real home whose pid this process reuses would put a name in every line.
 process.env.HOME = mkdtempSync(path.join(tmpdir(), "footer-home-default-"));
@@ -94,8 +98,10 @@ async function mount(overrides = {}) {
   let thinkingLevel = overrides.thinkingLevel ?? "high";
   let editorText = overrides.editorText ?? "";
 
+  let editorFactory = overrides.editorFactory;
   const ctx = {
     hasUI: true,
+    mode: overrides.mode,
     cwd: "/Users/someone/Code/github.com/someone/dotfiles",
     model,
     getContextUsage: () => contextUsage,
@@ -111,6 +117,9 @@ async function mount(overrides = {}) {
       notify: (message, level) => { notices.push({ message, level }); },
       getEditorText: () => editorText,
       setEditorText: (text) => { editorText = text; },
+      getEditorComponent: () => editorFactory,
+      setEditorComponent: (f) => { editorFactory = f; },
+      theme: { fg: (_color, text) => `<dim>${text}</dim>` },
     },
   };
 
@@ -243,6 +252,7 @@ async function mount(overrides = {}) {
 
   return {
     component,
+    editorFactory: () => editorFactory,
     events: pi.events,
     execCalls,
     sent,
@@ -1922,6 +1932,85 @@ test("hiding the session name and the status row", async () => {
     const lines = ui.plain();
     assert.equal(lines.length, 1, "no status row");
     assert.doesNotMatch(lines[0], /my-session/);
+  });
+});
+
+test("nameTopBorder: the name on the left, pi's scroll indicator on the right, truncated to fit", () => {
+  const b = (text) => `[${text}]`;
+  assert.equal(nameTopBorder("repo", 0, 16, b), "[──] repo [────────]");
+  assert.equal(nameTopBorder("repo", 3, 30, (t) => t), "── repo ────────── ↑ 3 more ──");
+  assert.equal(nameTopBorder("repo", 3, 30, (t) => t).length, 30);
+  // truncateToWidth closes the cut name with SGR resets; the border repaints after it.
+  assert.equal(strip(nameTopBorder("pi-extensions-repo", 0, 12, (t) => t)), "── pi-ext… ─");
+  assert.equal(nameTopBorder("repo", 0, 7, (t) => t), undefined, "too narrow: pi's border");
+  assert.equal(nameTopBorder("", 0, 40, (t) => t), undefined);
+});
+
+/** A stand-in for pi-tui's Editor: just the two members the name border uses. */
+function fakeEditor() {
+  return { borderColor: (text) => `{${text}}`, renderTopBorder: (width, hidden) => `pi:${width}:${hidden}` };
+}
+
+test("border mode (the default): the name moves from the footer into the editor's top border", async () => {
+  await withAgentDir(async () => {
+    assert.equal(CHIP_MODES.name?.[0], "border");
+    const ui = await mount({ mode: "tui", sessionName: "my-session", editorFactory: () => fakeEditor() });
+    assert.doesNotMatch(ui.plain()[0], /my-session/, "not in the footer");
+    const editor = ui.editorFactory()();
+    // Untinted, the name takes the border's own color rather than cyan. (The
+    // fake color's braces are visible, so they cost two columns of fill.)
+    assert.equal(editor.renderTopBorder(30, 0), "{──} {my-session} {──────────────}");
+    assert.match(strip(editor.renderTopBorder(40, 2)), /^\{──\} \{my-session\} \{─+ ↑ 2 more ──\}$/);
+    // Read per render: pi swaps borderColor for `!` bash mode.
+    editor.borderColor = (text) => `!${text}`;
+    assert.match(editor.renderTopBorder(30, 0), /^!──/);
+    assert.equal(editor.renderTopBorder(6, 1), "pi:6:1", "too narrow: pi's own border");
+  });
+});
+
+test("border mode: a /color tint paints the name, matching the tinted border", async () => {
+  await withAgentDir(async () => {
+    const previous = globalThis.__piSessionColor;
+    globalThis.__piSessionColor = { ansi: "\x1b[38;5;205m" };
+    try {
+      const ui = await mount({ mode: "tui", sessionName: "my-session", editorFactory: () => fakeEditor() });
+      assert.equal(ui.editorFactory()().renderTopBorder(30, 0), "{──} \x1b[38;5;205mmy-session\x1b[39m {────────────────}");
+    } finally {
+      globalThis.__piSessionColor = previous;
+    }
+  });
+});
+
+test("border mode without a session or peer name keeps pi's border", async () => {
+  await withAgentDir(async () => {
+    const ui = await mount({ mode: "tui", editorFactory: () => fakeEditor() });
+    assert.equal(ui.editorFactory()().renderTopBorder(30, 0), "pi:30:0");
+  });
+});
+
+test("footer mode and a hidden name leave pi's border alone; a reload doesn't stack wrappers", async () => {
+  for (const config of [{ modes: { name: "footer" } }, { hidden: ["name"] }]) {
+    await withAgentDir(async (dir) => {
+      writeFileSync(path.join(dir, "footer.json"), JSON.stringify(config));
+      const ui = await mount({ mode: "tui", sessionName: "my-session", editorFactory: () => fakeEditor() });
+      assert.equal(ui.editorFactory()().renderTopBorder(30, 0), "pi:30:0", JSON.stringify(config));
+      if (config.modes) assert.match(ui.plain()[0], /my-session$/, "footer mode keeps it in the footer");
+    });
+  }
+  await withAgentDir(async () => {
+    const base = () => fakeEditor();
+    const first = await mount({ mode: "tui", sessionName: "s", editorFactory: base });
+    const second = await mount({ mode: "tui", sessionName: "s", editorFactory: first.editorFactory() });
+    assert.equal(second.editorFactory().__footerNameBorderBase, base, "unwrapped back to the original editor");
+  });
+});
+
+test("an editor that isn't pi-tui's is left as it is", async () => {
+  await withAgentDir(async () => {
+    const plain = { render: () => [] };
+    const ui = await mount({ mode: "tui", sessionName: "s", editorFactory: () => plain });
+    assert.equal(ui.editorFactory()(), plain);
+    assert.equal(plain.renderTopBorder, undefined);
   });
 });
 

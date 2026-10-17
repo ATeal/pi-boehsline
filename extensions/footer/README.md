@@ -13,7 +13,8 @@ value; the selected row's description says what it shows and what a click
 does. Enter or Space cycles the row's value: `shown`/`hidden`, or for chips
 with display modes, each mode then `hidden` (Directory name/full path, Git
 full/branch, Context tokens/percent, Idle compaction clock/countdown, Cost and
-Rate limits compact/detailed, Token rate number/with TTFT). A Git condition
+Rate limits compact/detailed, Token rate number/with TTFT, Session name
+border/footer). A Git condition
 row under Git can hide the branch on a clean default branch (origin/HEAD's,
 else main or master) with nothing to push or pull. A Context
 threshold row under Context hides that chip until the context passes 50k,
@@ -23,6 +24,13 @@ status row stay put). While the list is open the real footer is the preview:
 the selected chip blinks underlined, the rest go faint gray, hidden chips show
 struck through, and a chip with nothing to show right now stands in with an
 example.
+
+The session name (or, for an unnamed session, the dim peer name other agents
+use) sits in the editor's top border by default, the way Claude Code frames
+the prompt: `── my-session ────────`, in the border's own colour (the `/color`
+tint when there is one; a peer name stays dim); pi's "↑ 3 more" moves to the right end, and a narrow pane
+truncates the name. The Session name row's `footer` mode puts it back at the
+right end of the footer, where a click prefills `/auto-name`.
 
 Changes apply to the current session only, and a warning under the list says
 so until Alt+S saves them to `footer.json` in the agent directory, defaults
