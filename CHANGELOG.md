@@ -14,6 +14,7 @@
 - footer: a "Usage pace" row under Rate limits. `on` adds each window's pace after its % (`↓8` ahead, `↑12` behind, nothing within ±5) in compact and detailed, and points to mini (`↓8`).
 - provider-usage: Copilot's per-workday allowance reads `4.3%/d`, without the `↓` that now means "slow down" in the footer.
 - footer: a "Rate condition" row under Token rate (`always`, `after 2s`, `5s`, `10s`, `30s`) shows the chip only for turns that run at least that long; a faster turn hides it.
+- `npm test` saves each run's output to `/tmp/test-runs/` (`TEST_RUNS_DIR` overrides), headed with the commit, dirty files and load average, keeping the newest 50, so an intermittent failure can be read afterwards. `npm test -- FILE` runs just those files.
 
 ## 0.2.1 — 2026-10-16
 
