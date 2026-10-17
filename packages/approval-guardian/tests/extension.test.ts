@@ -243,6 +243,7 @@ test("does not treat regex, sed, and extension-only globs as private data", () =
 		"node <<-'EOF'\n\tconst a = 1; // credentials come later\n\t/* .env\n\t * see credentials\n\t */\n\tconsole.log(a);\n\tEOF",
 		"python3 - <<\\EOF\n# credentials\nprint(1)\nEOF",
 		"cd src && python3 -u - <<'EOF' | tee out.txt\n# .netrc notes\nprint(1)\nEOF",
+		"python3 <<'EOF' - && npm test\n# .netrc notes\nprint(1)\nEOF",
 		"diff -rq --exclude=.git --exclude=.bundle a b",
 		"cat .env.example",
 	]) {
@@ -286,6 +287,17 @@ test("does not treat regex, sed, and extension-only globs as private data", () =
 		"python3 -c 'import sys; print(open(sys.stdin.read().strip()).read())' <<'EOF'\n# .env\nEOF",
 		"python3 script.py <<'EOF'\n# .env\nEOF",
 		"python3 - x <<'EOF'\n# .env\nEOF",
+		// An escaped or quoted operator is a literal argument: xargs receives it.
+		"xargs cat \\| python3 - <<'EOF'\n# .env\nEOF",
+		"xargs cat \\; python3 - <<'EOF'\n# .env\nEOF",
+		"xargs cat \\& python3 - <<'EOF'\n# .env\nEOF",
+		"xargs cat \\( python3 - <<'EOF'\n# .env\nEOF",
+		"xargs cat \\| node - <<'EOF'\n// .env\nEOF",
+		"xargs cat \\| python3 - <<'EOF'\n# /Users/me/.ssh/id_rsa\nEOF",
+		"xargs cat '|' python3 - <<'EOF'\n# .env\nEOF",
+		// Arguments after the heredoc: a script file reads stdin as data.
+		"python3 <<'EOF' reader.py\n# .env\nEOF",
+		"python3 - <<'EOF' \\| x\n# .env\nEOF",
 		// Comment-shaped lines inside a string are data, which may become a path.
 		// (A bare word there was already missed by the shell-word reading, which
 		// sees the ''' block as a quoted prose string; paths are caught by both.)

@@ -223,8 +223,10 @@ interface ShellWord {
  */
 const QUOTED_HEREDOC_START = /<<(-?)[ \t]*(?:(['"])([A-Za-z_][\w.-]*)\2|\\([A-Za-z_][\w.-]*))/g;
 
-function splitQuotedHeredocs(command: string): { rest: string; heredocs: { body: string; before: string }[] } {
-	const heredocs: { body: string; before: string }[] = [];
+type QuotedHeredoc = { body: string; before: string; after: string };
+
+function splitQuotedHeredocs(command: string): { rest: string; heredocs: QuotedHeredoc[] } {
+	const heredocs: QuotedHeredoc[] = [];
 	let rest = "";
 	let from = 0;
 	QUOTED_HEREDOC_START.lastIndex = 0;
@@ -237,7 +239,11 @@ function splitQuotedHeredocs(command: string): { rest: string; heredocs: { body:
 		const close = lines.findIndex((line) => (start[1] ? line.replace(/^\t+/, "") : line) === name);
 		const bodyLines = close === -1 ? lines : lines.slice(0, close);
 		const lineStart = command.lastIndexOf("\n", start.index) + 1;
-		heredocs.push({ body: bodyLines.join("\n"), before: command.slice(Math.max(lineStart, from), start.index) });
+		heredocs.push({
+			body: bodyLines.join("\n"),
+			before: command.slice(Math.max(lineStart, from), start.index),
+			after: command.slice(start.index + start[0].length, lineEnd),
+		});
 		// Keep the rest of the opening line (`| tee x`, `&& npm test`), drop the body.
 		rest += `${command.slice(from, start.index)} ${command.slice(start.index + start[0].length, lineEnd)}\n`;
 		from = close === -1 ? command.length : lineEnd + 1 + lines.slice(0, close + 1).join("\n").length;
@@ -320,10 +326,16 @@ function interpreterHeredocWords(command: string): ShellWord[] | undefined {
 	const { rest, heredocs } = splitQuotedHeredocs(command);
 	if (heredocs.length === 0) return undefined;
 	const bodies: string[] = [];
-	for (const { body, before } of heredocs) {
-		// The command receiving it: the last pipeline or list segment before `<<`.
+	for (const { body, before, after } of heredocs) {
+		// The command receiving it: the last pipeline or list segment before
+		// `<<`. A quote, backslash or backtick there could make an operator
+		// literal (`xargs cat \| python3 -`), so the split would lie: fail closed.
+		if (/['"\\`]/.test(before)) return undefined;
 		const segment = before.split(/\|\||&&|[;|&(]/).at(-1) ?? "";
 		const words = shellEvidenceWords(segment).map((word) => word.value);
+		// Its arguments after the heredoc too (`python3 <<'EOF' reader.py`), up
+		// to the next operator; a quote or backslash there is never a safe word.
+		words.push(...(after.split(/\|\||&&|[;|&)]/)[0] ?? "").split(/\s+/).filter(Boolean));
 		while (words.length > 0 && ENV_ASSIGNMENT.test(words[0] ?? "")) words.shift();
 		const [program = "", ...args] = words;
 		const language = HEREDOC_INTERPRETERS.find((entry) => entry.name.test(program.slice(program.lastIndexOf("/") + 1)));
