@@ -967,7 +967,6 @@ function onChange(relPath) {
 
 export function start() {
   mkdirSync(ROOT, { recursive: true });
-  writeFileSync(join(ROOT, ".daemon.json"), JSON.stringify({ pid: process.pid, port: PORT, version: VERSION, started: new Date().toISOString() }));
   prune(ROOT);
   setInterval(() => prune(ROOT), 6 * 3_600_000).unref();
   // Liveness is a pid check, so a pi that dies without session_shutdown only
@@ -978,8 +977,17 @@ export function start() {
   const server = createServer(handler);
   server.on("error", (e) => {
     // Another daemon won the race for the port: that one serves, this one goes.
-    if (e.code === "EADDRINUSE") process.exit(0);
+    // Say so: if another program holds the port, this line in .daemon.log is
+    // all the user has to go on.
+    if (e.code === "EADDRINUSE") {
+      console.error(`${new Date().toISOString()} canvas daemon: port ${PORT} is in use (another canvas daemon, or another program); exiting`);
+      process.exit(0);
+    }
     throw e;
+  });
+  // Written once listening, so a daemon that lost the race leaves no pid behind.
+  server.on("listening", () => {
+    writeFileSync(join(ROOT, ".daemon.json"), JSON.stringify({ pid: process.pid, port: PORT, version: VERSION, started: new Date().toISOString() }));
   });
   server.listen(PORT, "127.0.0.1");
   return server;

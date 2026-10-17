@@ -39,3 +39,28 @@ test("ensureDaemon resolves false, without an unhandled rejection, when the canv
   assert.match(run.stdout, /RESULT false,false/, "both attempts, the second after the first settled");
   assert.doesNotMatch(run.stdout, /UNHANDLED/);
 });
+
+test("a daemon that finds its port taken says so in the log and leaves no pid file", async () => {
+  const { mkdtempSync, existsSync } = await import("node:fs");
+  const { tmpdir } = await import("node:os");
+  const { join } = await import("node:path");
+  // Another program holds the port.
+  const holder = createServer();
+  await new Promise((resolve) => holder.listen(0, "127.0.0.1", resolve));
+  const { port } = holder.address();
+  const canvasRoot = mkdtempSync(join(tmpdir(), "canvas-eaddrinuse-"));
+  try {
+    const { spawn } = await import("node:child_process");
+    const child = spawn(process.execPath, [`${root}extensions/canvas/daemon.mjs`, "--port", String(port), "--root", canvasRoot, "--version", "test"], {
+      stdio: ["ignore", "pipe", "pipe"],
+    });
+    let stderr = "";
+    child.stderr.on("data", (d) => (stderr += d));
+    const code = await new Promise((resolve) => child.on("close", resolve));
+    assert.equal(code, 0, "losing the race isn't a crash");
+    assert.match(stderr, new RegExp(`port ${port} is in use \\(another canvas daemon, or another program\\); exiting`));
+    assert.equal(existsSync(join(canvasRoot, ".daemon.json")), false, "no pid of a process that is gone");
+  } finally {
+    await new Promise((resolve) => holder.close(resolve));
+  }
+});
