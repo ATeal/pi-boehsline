@@ -166,3 +166,37 @@ test("the progress filter exits non-zero when the child produced no answer", asy
     (error) => error.status === 1 && /\(no output\)/.test(error.stdout),
   );
 });
+
+/** Run one foreground task with process.argv[1] (the child pi script) swapped out. */
+async function runWithChild(script, env = {}) {
+  const { writeFileSync } = await import("node:fs");
+  const file = path.join(mkdtempSync(path.join(tmpdir(), "pi-subagent-child-")), "child.mjs");
+  if (script !== undefined) writeFileSync(file, script);
+  const saved = { argv1: process.argv[1], ...Object.fromEntries(Object.keys(env).map((k) => [k, process.env[k]])) };
+  process.argv[1] = script === undefined ? path.join(path.dirname(file), "missing.mjs") : file;
+  Object.assign(process.env, env);
+  try {
+    return textOf(await mount().run({ agent: "scout", task: "look around" }));
+  } finally {
+    process.argv[1] = saved.argv1;
+    for (const k of Object.keys(env)) {
+      if (saved[k] === undefined) delete process.env[k];
+      else process.env[k] = saved[k];
+    }
+  }
+}
+
+test("a child killed by a signal is a failure, and its partial reply is kept", async () => {
+  const text = await runWithChild(`
+    process.stdout.write(JSON.stringify({ type: "message_end", message: { role: "assistant", content: [{ type: "text", text: "partial answer" }] } }) + "\\n");
+    setTimeout(() => process.kill(process.pid, "SIGKILL"), 50);
+  `);
+  assert.match(text, /partial answer/);
+  assert.match(text, /\[killed by SIGKILL\]/);
+});
+
+test("a child that can't start reports why", async () => {
+  // No child script, and no pi on PATH: the spawn itself fails.
+  const text = await runWithChild(undefined, { PATH: "/nonexistent-bin" });
+  assert.match(text, /could not start pi: .*ENOENT/);
+});

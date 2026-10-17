@@ -340,6 +340,8 @@ export default function (pi: ExtensionAPI) {
 					const usage = newTally();
 					let final = "";
 					const stderr: string[] = [];
+					let killedBy: string | undefined;
+					let spawnError: string | undefined;
 					const exitCode: number = await new Promise((resolve) => {
 						const proc = spawn(invocation.cmd, invocation.args, { cwd: job.cwd ?? ctx.cwd, stdio: ["ignore", "pipe", "pipe"], env: { ...process.env, PI_SUBAGENT_CHILD: "1" } });
 						let buf = "";
@@ -367,16 +369,28 @@ export default function (pi: ExtensionAPI) {
 							for (const l of lines) onLine(l);
 						});
 						proc.stderr.on("data", (d) => stderr.push(d.toString()));
-						proc.on("close", (c) => {
+						proc.on("close", (c, sig) => {
 							if (buf.trim()) onLine(buf);
-							resolve(c ?? 0);
+							// A child killed by a signal has no exit code: that's a failure, not 0.
+							killedBy = sig ?? undefined;
+							resolve(c ?? 1);
 						});
-						proc.on("error", () => resolve(1));
+						proc.on("error", (err) => {
+							spawnError = err.message;
+							resolve(1);
+						});
 						if (signal) {
 							if (signal.aborted) proc.kill("SIGTERM");
 							else signal.addEventListener("abort", () => proc.kill("SIGTERM"), { once: true });
 						}
 					});
+					// Couldn't start, or killed mid-run (abort, OOM, timeout): not ok, even
+					// with a partial reply, which is kept so the work isn't lost.
+					if (spawnError || killedBy) {
+						const why = spawnError ? `could not start pi: ${spawnError}` : `killed by ${killedBy}`;
+						const partial = final ? `${final}\n\n` : "";
+						return { agent: job.agent, task: job.task, ok: false as const, output: `${partial}[${why}]${stderr.length ? `\n${stderr.join("").slice(-2000)}` : ""}`, usage };
+					}
 					if (exitCode !== 0 && !final) return { agent: job.agent, task: job.task, ok: false as const, output: stderr.join("").slice(-2000) || `exit ${exitCode}`, usage };
 					let out = final || "(no output)";
 					if (Buffer.byteLength(out) > OUTPUT_CAP) out += `\n\n[${Buffer.byteLength(out) - OUTPUT_CAP} bytes over cap omitted]`;
