@@ -28,6 +28,9 @@ import footer, {
   defaultChipHidden,
   dirLabel,
   readChipDefaults,
+  renderMiniUsage,
+  usageChipHidden,
+  usagePace,
   gitChipHidden,
   DEFAULT_CHIP_ORDER,
   FOOTER_CHIPS,
@@ -889,7 +892,8 @@ test("/footer's Copilot OOO row sits under Rate limits, emits the change and sav
     const list = await openChecklist(ui);
     const shown = list.render(140).map(strip);
     const at = shown.findIndex((line) => /^\s*(→ )?Rate limits/.test(line));
-    assert.match(shown[at + 1], /Copilot OOO days\s+0/);
+    assert.match(shown[at + 1], /^ {4}Usage condition\s+always/);
+    assert.match(shown[at + 2], /^ {4}Copilot OOO days\s+0/);
     const selected = () => list.render(140).map(strip).find((line) => line.startsWith("→"));
     for (let i = 0; i < 30 && !/Copilot OOO/.test(selected()); i += 1) list.handleInput("j");
     list.handleInput("\r"); // 0 → 1
@@ -904,6 +908,78 @@ test("/footer's Copilot OOO row sits under Rate limits, emits the change and sav
   });
 });
 
+test("usagePace: a limit wins, then the most-ahead window; anything unreadable is unknown", () => {
+  assert.deepEqual(usagePace("1.0/5H: 4% 3.5/7D: 70%"), { worst: 70 - 50 });
+  assert.ok(Math.abs(usagePace("12.1/20.2W: 61.4% ↓4.3%/d").worst - (61.4 - (12.1 / 20.2) * 100)) < 1e-9);
+  assert.deepEqual(usagePace("1.0/5H: 4% 3.5/7D: 100% ↻2h"), { limit: true });
+  assert.deepEqual(usagePace("$1.20 (11%)"), { unknown: true });
+  assert.deepEqual(usagePace(""), { unknown: true });
+});
+
+test("usageChipHidden: on pace is within ±5; 'when > N ahead' shows only past N; limits and unknowns always show", () => {
+  const at = (worst) => ({ worst });
+  assert.equal(usageChipHidden(undefined, at(0)), false);
+  assert.equal(usageChipHidden("always", at(0)), false);
+  assert.equal(usageChipHidden("unless on pace", at(5)), true);
+  assert.equal(usageChipHidden("unless on pace", at(-5)), true);
+  assert.equal(usageChipHidden("unless on pace", at(5.1)), false, "ahead: slow down");
+  assert.equal(usageChipHidden("unless on pace", at(-5.1)), false, "behind: speed up");
+  assert.equal(usageChipHidden("when > 10 ahead", at(10)), true);
+  assert.equal(usageChipHidden("when > 10 ahead", at(10.1)), false);
+  assert.equal(usageChipHidden("when > 10 ahead", at(-30)), true, "far behind is not ahead");
+  assert.equal(usageChipHidden("when > 20 ahead", at(15)), true);
+  for (const when of ["unless on pace", "when > 20 ahead"]) {
+    assert.equal(usageChipHidden(when, { limit: true }), false, `${when}: limit`);
+    assert.equal(usageChipHidden(when, { unknown: true }), false, `${when}: unknown`);
+  }
+});
+
+test("mini: ↓ on the slow-down ladder, ↑ on a green one, nothing on pace", () => {
+  // 3.5/7D is 50% elapsed: percent - 50 is the pace.
+  const chip = (percent) => `3.5/7D: ${percent}%`;
+  assert.equal(renderMiniUsage(chip(53)), "", "on pace");
+  assert.equal(renderMiniUsage(chip(47)), "", "on pace, a little behind");
+  assert.equal(renderMiniUsage(chip(58)), "\x1b[33m↓\x1b[39m", ">5 ahead: yellow");
+  assert.equal(renderMiniUsage(chip(65)), "\x1b[38;5;208m↓\x1b[39m", ">10 ahead: orange");
+  assert.equal(renderMiniUsage(chip(75)), "\x1b[31m↓\x1b[39m", ">20 ahead: red");
+  assert.equal(renderMiniUsage(`${chip(40)} ↻3h`), "\x1b[31m↓\x1b[39m", "at a limit: red");
+  assert.equal(renderMiniUsage(chip(42)), "\x1b[32m↑\x1b[39m", ">5 behind: green");
+  assert.equal(renderMiniUsage(chip(35)), "\x1b[92m↑\x1b[39m", ">10 behind: bright green");
+  assert.equal(renderMiniUsage(chip(20)), "\x1b[1;92m↑\x1b[22;39m", ">20 behind: bold green");
+  assert.equal(renderMiniUsage("1.0/5H: 30% 3.5/7D: 20%"), "\x1b[33m↓\x1b[39m", "worst window: 5h is 10 ahead, so slow down despite the week being 30 behind");
+  assert.equal(renderMiniUsage("$1.20 (11%)"), undefined, "unreadable: the caller falls back to compact");
+});
+
+test("mini renders just the arrow; the Usage condition hides compact on pace; a click cycles compact → detailed → mini", async () => {
+  await withAgentDir(async (dir) => {
+    // 12.1/20.2W is ~59.9% elapsed: 75% is ~15 ahead (orange), 60% is on pace.
+    const ahead = new Map([["copilot-window", "12.1/20.2W: 75% ↓1.2%/d"]]);
+    const onPace = new Map([["copilot-window", "12.1/20.2W: 60% ↓4.3%/d"]]);
+
+    writeFileSync(path.join(dir, "footer.json"), JSON.stringify({ modes: { usage: "mini" } }));
+    const mini = await mount({ statuses: ahead });
+    assert.match(mini.plain()[0], / ↓$/);
+    assert.match(mini.raw()[0], /\x1b\[38;5;208m↓\x1b\[39m/);
+    assert.doesNotMatch((await mount({ statuses: onPace })).plain()[0], /↓|↑|%/, "on pace: mini shows nothing");
+
+    writeFileSync(path.join(dir, "footer.json"), JSON.stringify({ usageWhen: "unless on pace" }));
+    assert.doesNotMatch((await mount({ statuses: onPace })).plain()[0], /60%/, "compact hidden on pace");
+    const shown = await mount({ statuses: ahead });
+    assert.match(shown.plain()[0], / 75% ↓1\.2%\/d$/, "compact shown when ahead");
+
+    writeFileSync(path.join(dir, "footer.json"), JSON.stringify({}));
+    const ui = await mount({ statuses: ahead });
+    const x = () => ui.plain()[0].lastIndexOf(" ") + 1;
+    assert.match(ui.plain()[0], / 75% ↓1\.2%\/d$/, "compact by default");
+    ui.click(ui.plain()[0].indexOf("75%"), 0);
+    assert.match(ui.plain()[0], / 12\.1\/20\.2W: 75% ↓1\.2%\/d$/, "detailed");
+    ui.click(ui.plain()[0].indexOf("12.1"), 0);
+    assert.match(ui.plain()[0], / ↓$/, "mini");
+    ui.click(x(), 0);
+    assert.match(ui.plain()[0], / 75% ↓1\.2%\/d$/, "back to compact");
+  });
+});
+
 test("legacy trailing !s are stripped and still color by pace", async () => {
   const ui = await mount({ statuses: new Map([["codex-window", "2.1/7D: 55%!!!"]]) });
   // Compact by default: just the percent, no bangs, still red (>20 ahead).
@@ -912,7 +988,7 @@ test("legacy trailing !s are stripped and still color by pace", async () => {
   assert.match(ui.raw()[0], /\x1B\[31m55%\x1B\[39m/);
 });
 
-test("provider usage defaults compact and toggles to long and back", async () => {
+test("provider usage defaults compact and cycles to long, mini and back", async () => {
   const long = "3.5/5H: 4% 1/7D: 22%";
   const ui = await mount({ statuses: new Map([["codex-window", long]]) });
   let line = ui.plain()[0];
@@ -923,6 +999,10 @@ test("provider usage defaults compact and toggles to long and back", async () =>
   assert.match(line, /3\.5\/5H: 4% 1\/7D: 22%$/);
 
   assert.deepEqual(ui.click(line.indexOf("3.5/5H") + 1, 0), { handled: true });
+  line = ui.plain()[0];
+  assert.match(line, / ↓$/, "mini: the week is ~8 ahead");
+
+  assert.deepEqual(ui.click(line.lastIndexOf("↓"), 0), { handled: true });
   assert.match(ui.plain()[0], /4%\/22%$/);
 });
 

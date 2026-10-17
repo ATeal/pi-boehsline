@@ -9,6 +9,7 @@
 - footer: `~` for the home directory, and an optional `dirNames` map in `footer.json` that renames the directory chip per folder (`""` hides it). Rows in `/footer` that configure a chip are indented under it, and the list shows up to 22 rows.
 - footer: a "Provider/Model/Thinking condition" under each of those chips; "unless default" hides the chip while it matches settings.json's `defaultProvider`, `defaultModel`, or the level the model starts on (its `modelThinkingLevels` entry, else `defaultThinkingLevel`).
 - agent-link removes its `~/.claude/sessions/<pid>.json` on a hard exit too, not only on `session_shutdown`. Print-mode runs that `process.exit` (such as `scripts/bench.mjs`) leaked one file each, and a later process reusing the pid showed it as its session name; the footer now also ignores a registry file older than its process.
+- footer: a `mini` mode for the Rate limits chip, just `↑` speed up or `↓` slow down from the worst window's pace on a green or yellow/orange/red ladder, hidden on pace. Clicking cycles compact → detailed → mini. A "Usage condition" row hides the chip by pace in any mode (`unless on pace`, `when > 10 ahead`, `when > 20 ahead`); a limit always shows. `/footer` supports several setting rows per chip.
 
 ## 0.2.1 — 2026-10-16
 

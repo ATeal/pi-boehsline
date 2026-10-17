@@ -49,6 +49,15 @@ level this model starts on: its `modelThinkingLevels` entry, else
 `defaultThinkingLevel`, else pi's `medium` (settings.json, a project's
 `.pi/settings.json` first). Switching away shows it again.
 
+The Rate limits chip has three modes: `compact` (`61.4% ↓4.3%/d`), `detailed`
+(`12.1/20.2W: 61.4% ↓4.3%/d`) and `mini`, just an arrow from pace: `↓` slow
+down when any window is more than 5 points ahead (yellow, orange past 10, red
+past 20 or at a limit), `↑` speed up when every window is more than 5 behind
+(green, brighter past 10, bold past 20), and nothing on pace. Clicking cycles
+the three. Its Usage condition hides the chip by pace in any mode: `unless on
+pace` (within ±5), `when > 10 ahead`, `when > 20 ahead`. A limit or an
+unreadable format always shows.
+
 Reopening `/footer` keeps the session's unsaved changes; a new session starts
 from the saved file. A saved mode is where each session starts; clicking a chip
 still flips it, for that session only. Chips added later start shown, in their default mode, after

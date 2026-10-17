@@ -120,7 +120,7 @@ export const FOOTER_CHIPS = [
   { id: "context", label: "Context", example: "42k/1m", description: "Context tokens / window, or a percent, coloured as it fills. Click: flip for this session." },
   { id: "idle", label: "Idle compaction", example: "⏲ 2:41p", description: "When idle compaction fires (54 minutes after the last request): a clock time or a countdown. /idle explains when it is missing." },
   { id: "cost", label: "Cost", example: "$0.42", description: "Session cost, or a provider budget (ollama, baseten, openrouter) as a percent (compact) or total (detailed). Click: flip for this session." },
-  { id: "usage", label: "Rate limits", example: "57%", description: "Provider usage windows: Copilot premium-request share over workdays (W) with the ↓%/d left per workday, Codex/Grok/Claude windows, compact or detailed. Click: flip for this session." },
+  { id: "usage", label: "Rate limits", example: "57%", description: "Provider usage windows: Copilot premium-request share over workdays (W) with the ↓%/d left per workday, Codex/Grok/Claude windows, compact, detailed, or mini (just ↑ speed up / ↓ slow down, hidden on pace). Click: cycle for this session." },
   { id: "boot", label: "Boot time", example: "⚡775ms", description: "⚡ startup time, until the first message. Click: recent boot stats." },
   { id: "rate", label: "Token rate", example: "99", description: "Tokens per second of the last reply (live while streaming), alone or with the time to first token. Click: flip for this session." },
   { id: "name", label: "Session name", example: "session-name", description: "Session name, or the dim peer name other agents use. Click: prefill /auto-name." },
@@ -149,7 +149,8 @@ export const CHIP_MODES: Partial<Record<FooterChipId, readonly string[]>> = {
   context: ["tokens", "percent"],
   idle: ["clock", "countdown"],
   cost: ["compact", "detailed"],
-  usage: ["compact", "detailed"],
+  // compact stays first (the default); a click cycles compact → detailed → mini.
+  usage: ["compact", "detailed", "mini"],
   rate: ["number", "with TTFT"],
 };
 
@@ -166,6 +167,8 @@ export interface FooterConfig {
   providerWhen?: string;
   modelWhen?: string;
   thinkingWhen?: string;
+  /** When the usage chip shows, by pace: "unless on pace", "when > 10 ahead", "when > 20 ahead"; absent means always. */
+  usageWhen?: string;
   /** Copilot workdays off still ahead this cycle ("0"–"15"); provider-usage reads it for the ↓%/d allowance. */
   copilotOoo?: string;
   /** When copilotOoo was set; provider-usage ignores it once a new Copilot cycle starts. */
@@ -220,6 +223,13 @@ export const CONDITION_ROWS = [
     label: "Context threshold",
     description: "Show the context chip only above this many tokens, or this share of the window.",
     values: [...CONTEXT_THRESHOLDS],
+  },
+  {
+    key: "usageWhen",
+    chip: "usage",
+    label: "Usage condition",
+    description: "Hide the rate-limits chip by pace: on pace means no window is more than 5 points ahead or behind. A limit (↻) or an unreadable format always shows.",
+    values: ["always", "unless on pace", "when > 10 ahead", "when > 20 ahead"],
   },
   {
     key: "copilotOoo",
@@ -1652,6 +1662,46 @@ function parseWindowPace(value: string): number | undefined {
   return percent - (elapsed / total) * 100;
 }
 
+/** How a usage chip stands: at a limit, unreadable, or the most-ahead window's pace (negative = behind). */
+export type UsagePace = { limit: true } | { unknown: true } | { worst: number };
+
+/** The worst window of a usage chip: one at its limit wins, then the most ahead. */
+export function usagePace(value: string): UsagePace {
+  const groups = windowGroups(value);
+  if (groups.some((group) => group.includes("\u21bb"))) return { limit: true };
+  const paces = groups.map(parseWindowPace);
+  if (paces.length === 0 || paces.some((pace) => pace === undefined)) return { unknown: true };
+  return { worst: Math.max(...(paces as number[])) };
+}
+
+/** Points either side of pace that still count as on pace (the gray band). */
+const ON_PACE_BAND = 5;
+
+/** Whether the Usage condition hides the chip. A limit or an unreadable chip always shows. */
+export function usageChipHidden(when: string | undefined, pace: UsagePace): boolean {
+  if (!when || when === "always" || !("worst" in pace)) return false;
+  if (when === "unless on pace") return Math.abs(pace.worst) <= ON_PACE_BAND;
+  const ahead = /^when > (\d+) ahead$/.exec(when);
+  return ahead ? pace.worst <= Number(ahead[1]) : false;
+}
+
+/**
+ * Mini mode: ↓ slow down when any window is more than 5 ahead (today's
+ * yellow/orange/red ladder; red at a limit), ↑ speed up when every window is
+ * more than 5 behind (green, bright green, bold green), nothing on pace. An
+ * unreadable chip returns undefined so the caller can fall back to compact.
+ */
+export function renderMiniUsage(value: string): string | undefined {
+  const pace = usagePace(value);
+  if ("limit" in pace) return color(RED, "↓");
+  if ("unknown" in pace) return undefined;
+  if (pace.worst > ON_PACE_BAND) return color(paceColor(pace.worst), "↓");
+  const behind = -pace.worst;
+  if (behind <= ON_PACE_BAND) return "";
+  if (behind > 20) return `\x1b[1;92m↑\x1b[22;39m`;
+  return color(behind > 10 ? 92 : GREEN, "↑");
+}
+
 /** Strip legacy trailing !s (stale cache) so they never paint. */
 function stripBangs(value: string): string {
   return value.replace(/!+(?=\s|$)/g, "");
@@ -1727,7 +1777,7 @@ export default function footerExtension(pi: ExtensionAPI): void {
   /** Context chip shows percent-used instead of tokens/window when true. */
   let contextPercent = false;
   /** Provider usage hides elapsed-window ages in a compact combined form by default. */
-  let compactProviderUsage = true;
+  let usageMode = "compact";
   /** The budget-usage cost chip shows its percent-only tail by default ("11%"). */
   let compactCostUsage = true;
   /**
@@ -1810,7 +1860,7 @@ export default function footerExtension(pi: ExtensionAPI): void {
     showFullPath = chipMode(footerConfig, "dir") === "full path";
     contextPercent = chipMode(footerConfig, "context") === "percent";
     compactCostUsage = chipMode(footerConfig, "cost") !== "detailed";
-    compactProviderUsage = chipMode(footerConfig, "usage") !== "detailed";
+    usageMode = chipMode(footerConfig, "usage") ?? "compact";
     detailedRate = chipMode(footerConfig, "rate") === "with TTFT";
   }
   /** Each chip's text at the last render, hidden ones too, for /footer's samples. */
@@ -1925,7 +1975,8 @@ export default function footerExtension(pi: ExtensionAPI): void {
               contextPercent = !contextPercent;
               repaint?.();
             } else if (action === "providerUsage") {
-              compactProviderUsage = !compactProviderUsage;
+              const modes = CHIP_MODES.usage ?? ["compact"];
+              usageMode = modes[(modes.indexOf(usageMode) + 1) % modes.length] ?? "compact";
               repaint?.();
             } else if (action === "rate") {
               detailedRate = !detailedRate;
@@ -2038,7 +2089,9 @@ export default function footerExtension(pi: ExtensionAPI): void {
             ...INLINE_STATUS_KEYS.map((key) => {
               const value = statuses.get(key);
               // Per-window coloring: a red 5h shouldn't paint the week red too.
-              return ["usage", value ? renderWindowUsage(value, compactProviderUsage) : ""] as const;
+              if (!value || usageChipHidden(footerConfig.usageWhen, usagePace(value))) return ["usage", ""] as const;
+              const mini = usageMode === "mini" ? renderMiniUsage(value) : undefined;
+              return ["usage", mini ?? renderWindowUsage(value, usageMode !== "detailed")] as const;
             }),
             ["boot", showBoot ? theme.fg("dim", `⚡${formatMs(bootMs as number)}`) : ""],
             // Waiting for the first token: the TTFT counts up, dim (detailed
@@ -2543,20 +2596,16 @@ export default function footerExtension(pi: ExtensionAPI): void {
               currentValue: footerConfig.hidden.has(id) ? "hidden" : (chipMode(footerConfig, id) ?? "shown"),
               values: [...(CHIP_MODES[id] ?? ["shown"]), "hidden"],
             };
-            const row = CONDITION_ROWS.find((condition) => condition.chip === id);
-            if (!row) return [item];
-            // Its own row under the chip, following it when the chip moves.
-            return [
-              item,
-              {
-                id: row.key,
-                // Indented: a setting of the chip above, not a chip of its own.
-                label: `  ${row.label}`.padEnd(labelWidth),
-                description: row.description,
-                currentValue: footerConfig[row.key] ?? row.values[0],
-                values: [...row.values],
-              },
-            ];
+            // Each setting gets its own row under the chip, following it when the chip moves.
+            const rows = CONDITION_ROWS.filter((condition) => condition.chip === id).map((row) => ({
+              id: row.key,
+              // Indented: a setting of the chip above, not a chip of its own.
+              label: `  ${row.label}`.padEnd(labelWidth),
+              description: row.description,
+              currentValue: footerConfig[row.key] ?? row.values[0],
+              values: [...row.values],
+            }));
+            return [item, ...rows];
           });
         const listTheme: SettingsListTheme = {
           // Accent only the chip name: the sample after it keeps its colours.
