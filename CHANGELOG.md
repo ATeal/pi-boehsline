@@ -4,6 +4,7 @@
 
 - **CI checks the context budget.** `node scripts/bench.mjs --check docs/benchmarks.md` measures starting context offline (a stand-in model, nothing sent) and the `context-budget` job fails if it's more than 10% over the documented number. `scripts/bench.mjs` gains `--offline`, `--context-only`, `--check` and `PI_BIN`.
 - One `lib/tool-search.ts` helper for every extension with a deferred tool (agent-link and goal had their own copies), and `test/deferred-tools.test.mjs` checks every deferred tool in the manifest stays reachable with subagent turned off.
+- aa-info: reads every page of Artificial Analysis's free `language/models/free` endpoint and nothing else. The legacy `/api/v2/data/llms/models` it read quality, speed and rates from retires on 2026-11-04. The old code read only page 1 of the cost endpoint, so $/task now covers every model AA has priced, not just the first 200 rows. `$/1M` is computed as AA's 3:1 blend; Kimi models count as Moonshot for the peer line.
 
 ## 0.2.1 — 2026-10-16
 

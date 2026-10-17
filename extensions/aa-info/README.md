@@ -23,15 +23,19 @@ so a trailing `@med` marks a task cost measured at a different effort than the
 session runs — it swings ~4x across the ladder. Latency is omitted on purpose:
 AA's own site and API disagree about it by more than 2x for the same variant.
 
-Data comes from two free Artificial Analysis endpoints (`data/llms/models` for
-quality, speed and rate; `language/models/free` for $/task), fetched once a
-week and cached together in `~/.pi/agent/cache/aa-models.json`. The cost endpoint
-declares its Intelligence Index version (`intelligence_index_version`,
+Data comes from one free Artificial Analysis endpoint, `language/models/free`,
+fetched once a week (every page: it serves 200 models a page) and cached in
+`~/.pi/agent/cache/aa-models.json`. A refresh costs one request per page, four
+today, against the free tier's 100 per fixed 24-hour window. The free shape has
+no blended rate, so `$/1M` is AA's 3:1 blend, (3·input + output) / 4. The
+endpoint declares its Intelligence Index version (`intelligence_index_version`,
 major.minor); the cache keeps it and the briefing shows it as `(AA v4.3)`,
 falling back to plain `(AA)` for caches written before versions were kept. The
-quality endpoint declares no version and the API serves current scores only, so
+API serves current scores only, so
 a past index can't be pinned — when the site and the briefing disagree, the tag
-says which index the briefing's numbers belong to. The fetch is
+says which index the briefing's numbers belong to. Speeds are AA's free-tier
+snapshot, whose prompt preset isn't declared (it looks like the API's default
+10k-input `long` preset, and `prompt_type` is rejected). The fetch is
 fire-and-forget — neither startup nor the model switch waits on it — and a
 model the API does not know (local oMLX weights) or a failed fetch shows
 nothing. The key resolves from `$ARTIFICIAL_ANALYSIS_API_KEY`, then the secret command

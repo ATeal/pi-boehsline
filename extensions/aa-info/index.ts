@@ -36,30 +36,44 @@
  * model name is in both, and the footer shows the thinking level. See brief()
  * for the ordering that guarantees which of the two survives.
  *
- * Two free endpoints, both fetched once a week and cached together on disk per
- * agent directory (1k req/day, so the weekly pair is nothing):
+ * One free endpoint, /api/v2/language/models/free, fetched once a week and
+ * cached on disk per agent directory. It is paginated (200 rows a page,
+ * `?page=N`, `pagination.total_pages`); every page together covers every
+ * model AA lists (704 in Oct 2026), and each row supplies the quality
+ * indices, output speed, input/output rates and, for the ~200 rows AA has
+ * run it on, $/task — the cost of one Intelligence Index task, the closest
+ * thing AA publishes to "what will this model cost me to do a piece of work".
+ * The row is selected to match pi's current thinking level (then AA's
+ * bare/max row). The free shape has no blended rate, so $/1M is computed as
+ * AA's 3:1 blend, (3·input + output) / 4, which reproduced the retired
+ * /api/v2/data/llms/models figure exactly for every priced model.
  *
- *  - /api/v2/data/llms/models covers every model (624) and supplies the
- *    quality indices, output speed and the per-million rate. Its row is
- *    selected to match pi's current thinking level (then AA's bare/max row);
- *  - /api/v2/language/models/free covers 200 and supplies $/task — the cost of
- *    one Intelligence Index task, which is the closest thing AA publishes to
- *    "what will this model cost me to do a piece of work".
+ * The free tier allows 100 requests per fixed 24-hour window, starting at the
+ * window's first request and resetting in full, shared by every key in the
+ * same scope. A refresh is one request per page (four today); the weekly TTL
+ * plus at most one early refresh per 12 hours (below) caps this at about
+ * eight a day.
+ *
+ * The legacy /api/v2/data/* routes this used to read for quality, speed and
+ * rate retire on 2026-11-04 (410 Gone after that).
  *
  * Latency is deliberately absent. AA's own site and API disagree about it by
  * more than 2x for the same model and variant (Opus 5 max: 33.5s from the API,
  * 71.6s on the model page, while their speed figures differ by 5%), so the
- * seconds were noise dressed up as data. Everything shown here is the API's
- * 1k-prompt, single-query snapshot — the free tier ignores prompt_length.
+ * seconds were noise dressed up as data. The free endpoint takes only `page`
+ * (it rejects `prompt_type` with a 400) and does not declare which prompt
+ * preset its performance numbers use. Its time-to-first-token runs ~1.5x the
+ * retired endpoint's 1k-prompt figure while speed stays within ~1% (median),
+ * which points to the API's default `long` preset (10k input tokens, one
+ * query at a time) rather than 1k.
  *
  * Intelligence scores skew the same way in miniature: the site chart (v4.3)
  * shows GPT-6 Astra (xhigh) at 53 while the API row for the same slug reports
  * 54.3, and minor index bumps re-mix the eval set (v4.3 runs Terminal-Bench
  * v4.0 where the API row still carries terminalbench_v2_1). No endpoint takes
  * a version parameter — the API serves current scores only — so a past index
- * cannot be pinned; the cost endpoint at least declares its index as top-level
- * `intelligence_index_version` (major.minor as a number, e.g. 4.3), while the
- * quality endpoint carries no version field at all. The cached cost-endpoint
+ * cannot be pinned; the endpoint at least declares its index as top-level
+ * `intelligence_index_version` (major.minor as a number, e.g. 4.3). The cached
  * version rides in the tag, `(AA v4.3)` when known and plain `(AA)` otherwise,
  * so a gap against the site reads as a version gap rather than a bug.
  *
@@ -77,7 +91,7 @@
  * (lib/secrets.ts; `fnox get` by default), the same chain web/providers/config.ts uses. It is held only in
  * memory and never logged or persisted. Data by artificialanalysis.ai — the
  * trailing (AA) is the attribution their free API terms ask for; a version
- * suffix (AA v4.3) names the cached cost-endpoint index on top of that.
+ * suffix (AA v4.3) names the cached index version on top of that.
  */
 
 import { mkdir, readFile, rename, writeFile } from "node:fs/promises";
@@ -87,14 +101,13 @@ import { readSecret, secretSourceLabel } from "../../lib/secrets.ts";
 
 import type { ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-agent";
 
-const ENDPOINT = "https://artificialanalysis.ai/api/v2/data/llms/models";
 /**
- * Sparser (200 models, arbitrary effort variants) but carries cost per task —
- * and the only declared index version: its top-level
- * `intelligence_index_version` (major.minor, e.g. 4.3). The quality endpoint
- * above carries no version field.
+ * Every model across pages, with cost per task on the rows AA has measured and
+ * a top-level `intelligence_index_version` (major.minor, e.g. 4.3).
  */
-const COST_ENDPOINT = "https://artificialanalysis.ai/api/v2/language/models/free";
+const ENDPOINT = "https://artificialanalysis.ai/api/v2/language/models/free";
+/** A ceiling in case `total_pages` ever reads absurd: 20 pages is 4,000 models. */
+const MAX_PAGES = 20;
 const KEY_ENV = "ARTIFICIAL_ANALYSIS_API_KEY";
 const TTL_MS = 7 * 24 * 60 * 60 * 1000;
 /** A miss against a cache this old buys an early refresh: AA scores models
@@ -102,7 +115,12 @@ const TTL_MS = 7 * 24 * 60 * 60 * 1000;
 const REFRESH_ON_MISS_MS = 12 * 60 * 60 * 1000;
 const FETCH_TIMEOUT_MS = 15_000;
 
-/** The subset of the free-tier LLM response this extension renders. */
+/**
+ * The cached, rendered shape: a free-tier row with the blended rate computed
+ * and speed lifted out of `performance`. It matches what the retired
+ * /data/llms/models rows looked like, so caches written before the move still
+ * read.
+ */
 interface AaModel {
   id?: string;
   name?: string;
@@ -113,9 +131,27 @@ interface AaModel {
     artificial_analysis_intelligence_index?: number;
     artificial_analysis_coding_index?: number;
   };
-  /** Blended 3:1 input/output rate, present for every model. */
+  /** Blended 3:1 input/output rate; absent when AA lists no prices. */
   pricing?: { price_1m_blended_3_to_1?: number };
   median_output_tokens_per_second?: number;
+}
+
+/** One row of /language/models/free, as far as this extension reads it. Nulls mean "not measured". */
+interface FreeRow {
+  id?: string;
+  name?: string;
+  slug?: string;
+  release_date?: string;
+  model_creator?: { name?: string; slug?: string };
+  evaluations?: {
+    artificial_analysis_intelligence_index?: number | null;
+    artificial_analysis_coding_index?: number | null;
+  };
+  pricing?: { price_1m_input_tokens?: number | null; price_1m_output_tokens?: number | null };
+  performance?: { median_output_tokens_per_second?: number | null };
+  artificial_analysis_intelligence_index_cost?: {
+    cost_per_task?: { total_cost?: number | null };
+  } | null;
 }
 
 interface AaCache {
@@ -124,9 +160,8 @@ interface AaCache {
   /** AA slug → USD per Intelligence Index task. Absent marks a pre-cost cache. */
   costs?: Record<string, number>;
   /**
-   * intelligence_index_version from the cost endpoint (major.minor, e.g. 4.3).
-   * The quality endpoint declares no version. Absent marks a cache written
-   * before versions were kept, which still briefs with a plain (AA) tag.
+   * intelligence_index_version (major.minor, e.g. 4.3). Absent marks a cache
+   * written before versions were kept, which still briefs with a plain (AA) tag.
    */
   indexVersion?: number;
 }
@@ -295,6 +330,8 @@ const VENDOR_RANK: Record<string, number> = {
   deepseek: 6,
   moonshotai: 7,
   "moonshot ai": 7,
+  // AA lists Moonshot's models under its Kimi brand.
+  kimi: 7,
 };
 
 function creatorRank(entry: AaModel): number {
@@ -390,7 +427,7 @@ interface TaskCost {
 /**
  * USD per Intelligence Index task, for the effort being run when AA has it.
  *
- * The cost endpoint carries an arbitrary one or two efforts per model, so an
+ * AA prices tasks at an arbitrary one or two efforts per model, so an
  * exact slug hit is not automatically the right one — the bare slug is their
  * max row, which is the wrong number for an xhigh session. Pick the closest
  * rung on the ladder and report which, since cost swings ~4x across it
@@ -562,51 +599,74 @@ function rowsOf(payload: unknown): unknown[] {
   return Array.isArray(data) ? data : [];
 }
 
+const num = (value: unknown): number | undefined =>
+  typeof value === "number" && Number.isFinite(value) ? value : undefined;
+
+/** A free row in the cached shape: blended rate computed, speed un-nested, nulls dropped. */
+function toModel(row: FreeRow): AaModel {
+  const input = num(row.pricing?.price_1m_input_tokens);
+  const output = num(row.pricing?.price_1m_output_tokens);
+  // Rounded so float noise (3 × 0.1) never reaches the cache.
+  const blended =
+    input !== undefined && output !== undefined
+      ? Math.round(((3 * input + output) / 4) * 1e6) / 1e6
+      : undefined;
+  return {
+    id: row.id,
+    name: row.name,
+    slug: row.slug,
+    release_date: row.release_date,
+    model_creator: row.model_creator,
+    evaluations: {
+      artificial_analysis_intelligence_index: num(
+        row.evaluations?.artificial_analysis_intelligence_index,
+      ),
+      artificial_analysis_coding_index: num(row.evaluations?.artificial_analysis_coding_index),
+    },
+    pricing: blended === undefined ? undefined : { price_1m_blended_3_to_1: blended },
+    median_output_tokens_per_second: num(row.performance?.median_output_tokens_per_second),
+  };
+}
+
 /**
- * Cost per Intelligence Index task, keyed by slug, plus the response's declared
- * index version. Best-effort: this endpoint failing must not cost the briefing
- * its quality numbers, so it resolves to empty costs and no version rather
- * than rejecting.
+ * Every page of the free list. Page 1 says how many pages there are; the rest
+ * go out together. A page that fails fails the whole refresh: half a model list
+ * would brief some models and wrongly call others unscored, while a failed
+ * refresh is silent and retried on the next switch.
  */
-interface CostData {
-  costs: Record<string, number>;
-  version?: number;
+async function fetchPages(key: string): Promise<{ rows: FreeRow[]; version?: number }> {
+  const pageUrl = (page: number) => `${ENDPOINT}?page=${page}`;
+  const first = await getJson(pageUrl(1), key);
+  const envelope = first as {
+    intelligence_index_version?: unknown;
+    pagination?: { total_pages?: unknown };
+  };
+  const total = Math.min(Math.max(Math.trunc(num(envelope?.pagination?.total_pages) ?? 1), 1), MAX_PAGES);
+  const rest = await Promise.all(
+    Array.from({ length: total - 1 }, (_, i) => getJson(pageUrl(i + 2), key)),
+  );
+  return {
+    rows: [first, ...rest].flatMap((page) => rowsOf(page) as FreeRow[]),
+    version: num(envelope?.intelligence_index_version),
+  };
 }
 
-async function fetchCosts(key: string): Promise<CostData> {
-  const costs: Record<string, number> = {};
-  let version: number | undefined;
-  try {
-    const payload = await getJson(COST_ENDPOINT, key);
-    const declared = (payload as { intelligence_index_version?: unknown })
-      ?.intelligence_index_version;
-    if (typeof declared === "number" && Number.isFinite(declared)) version = declared;
-    for (const row of rowsOf(payload)) {
-      const { slug, artificial_analysis_intelligence_index_cost: index } = row as {
-        slug?: string;
-        artificial_analysis_intelligence_index_cost?: { cost_per_task?: { total_cost?: number } };
-      };
-      const cost = index?.cost_per_task?.total_cost;
-      if (typeof slug === "string" && typeof cost === "number") costs[slug] = cost;
-    }
-  } catch {
-    /* no costs this week; the briefing simply drops its $/task segment */
-  }
-  return { costs, version };
-}
-
-/** Two requests cover every model; concurrent callers share the in-flight pair. */
+/** One request per page covers every model; concurrent callers share the in-flight refresh. */
 async function fetchAll(): Promise<AaCache | undefined> {
   const key = await apiKey();
   if (!key) return undefined;
-  const [payload, costData] = await Promise.all([getJson(ENDPOINT, key), fetchCosts(key)]);
-  const data = rowsOf(payload) as AaModel[];
-  if (data.length === 0) return undefined;
+  const { rows, version } = await fetchPages(key);
+  if (rows.length === 0) return undefined;
+  const costs: Record<string, number> = {};
+  for (const row of rows) {
+    const cost = num(row.artificial_analysis_intelligence_index_cost?.cost_per_task?.total_cost);
+    if (typeof row.slug === "string" && cost !== undefined) costs[row.slug] = cost;
+  }
   const aa: AaCache = {
     fetchedAt: Date.now(),
-    data,
-    costs: costData.costs,
-    indexVersion: costData.version,
+    data: rows.map(toModel),
+    costs,
+    indexVersion: version,
   };
   await writeCache(aa);
   return aa;

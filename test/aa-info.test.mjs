@@ -152,18 +152,60 @@ function withFetch(fn) {
   };
 }
 
-/** Serve both free endpoints: the model list, and the sparse cost list. */
-const okFetch = () => async (url) => ({
-  ok: true,
-  status: 200,
-  json: async () =>
-    String(url).includes("/language/models/free")
-      ? { status: 200, data: COSTS }
-      : { status: 200, data: SAMPLE },
-});
+/**
+ * One cached row as the free endpoint serves it: the input and output rates
+ * both equal the cached blend (so the 3:1 blend reproduces it), speed nests
+ * under `performance`, the creator has no slug, and the row's cost per task
+ * (when the test gives one) rides on the row.
+ */
+function toFree(row, costs = {}) {
+  const blended = row.pricing?.price_1m_blended_3_to_1;
+  const cost = costs[row.slug];
+  return {
+    id: row.id,
+    name: row.name,
+    slug: row.slug,
+    release_date: row.release_date,
+    ...(row.model_creator ? { model_creator: { name: row.model_creator.name } } : {}),
+    evaluations: { ...row.evaluations },
+    artificial_analysis_intelligence_index_cost:
+      cost === undefined ? null : { cost_per_task: { total_cost: cost } },
+    pricing: {
+      price_1m_input_tokens: blended ?? null,
+      price_1m_output_tokens: blended ?? null,
+    },
+    performance: { median_output_tokens_per_second: row.median_output_tokens_per_second ?? null },
+  };
+}
 
-/** Both endpoints are fetched per refresh, so counts come in pairs. */
-const FETCHES_PER_REFRESH = 2;
+const COST_BY_SLUG = Object.fromEntries(
+  COSTS.map((c) => [c.slug, c.artificial_analysis_intelligence_index_cost.cost_per_task.total_cost]),
+);
+
+/**
+ * Serve `rows` as /language/models/free does: free-shaped and paginated by
+ * `?page=N`, with `pagination.total_pages` and an optional index version.
+ */
+const serve = (rows, { costs = {}, version, pageSize = 200 } = {}) => async (url) => {
+  const page = Number(new URL(String(url)).searchParams.get("page") ?? 1);
+  const totalPages = Math.max(1, Math.ceil(rows.length / pageSize));
+  return {
+    ok: true,
+    status: 200,
+    json: async () => ({
+      tier: "free",
+      ...(version === undefined ? {} : { intelligence_index_version: version }),
+      pagination: { page, page_size: pageSize, total_pages: totalPages, has_more: page < totalPages },
+      data: rows.slice((page - 1) * pageSize, page * pageSize).map((row) => toFree(row, costs)),
+    }),
+  };
+};
+
+/** The default fixture: every SAMPLE row, with its cost per task where COSTS has one. */
+const okFetch = () => serve(SAMPLE, { costs: COST_BY_SLUG });
+
+/** All of SAMPLE fits on one page, so one refresh is one request. */
+const FETCHES_PER_REFRESH = 1;
 
 async function until(fn, ms = 1_000) {
   const start = Date.now();
@@ -373,17 +415,10 @@ test("fresh cache is used without a fetch; stale cache is refetched", async () =
   });
 });
 
-test("the briefing carries the cost endpoint's declared index version", async () => {
+test("the briefing carries the endpoint's declared index version", async () => {
   await withAgentDir(async (dir) => {
     const cacheFile = path.join(dir, "cache", "aa-models.json");
-    const versioned = withFetch(async (url) => ({
-      ok: true,
-      status: 200,
-      json: async () =>
-        String(url).includes("/language/models/free")
-          ? { status: 200, intelligence_index_version: 4.3, data: COSTS }
-          : { status: 200, data: SAMPLE },
-    }));
+    const versioned = withFetch(serve(SAMPLE, { costs: COST_BY_SLUG, version: 4.3 }));
     try {
       const ui = mount();
       await ui.start();
@@ -457,22 +492,69 @@ test("a cache written before $/task existed is refreshed, not trusted", async ()
   });
 });
 
-test("a cost endpoint that fails costs only the $/task segment", async () => {
-  await withAgentDir(async () => {
-    const fetcher = withFetch(async (url) => {
-      if (String(url).includes("/language/models/free")) throw new Error("offline");
-      return { ok: true, status: 200, json: async () => ({ status: 200, data: SAMPLE }) };
-    });
+test("every page is fetched and merged, rates blended and speed un-nested", async () => {
+  await withAgentDir(async (dir) => {
+    // Two rows a page: SAMPLE's six rows span three pages, Opus xhigh on page 1
+    // and its cost and max row spread across the rest of the list.
+    const fetcher = withFetch(serve(SAMPLE, { costs: COST_BY_SLUG, version: 4.3, pageSize: 2 }));
     try {
       const ui = mount();
       await ui.start();
+      assert.equal(fetcher.count, 3, "one request per page");
       assert.deepEqual(ui.notifies, [
-        {
-          // The main list is effort-aware even when the $/task endpoint fails.
-          message: "Claude Opus 5 — int 62.5@xhi (max 62.9) · cod 55 · 151t/s · $10/1M (AA)",
-          level: "info",
-        },
+        { message: OPUS_LINE.replace(/\(AA\)$/, "(AA v4.3)"), level: "info" },
       ]);
+      const cached = JSON.parse(readFileSync(path.join(dir, "cache", "aa-models.json"), "utf8"));
+      assert.equal(cached.data.length, SAMPLE.length);
+      const kimi = cached.data.find((m) => m.slug === "kimi-k3");
+      assert.equal(kimi.pricing.price_1m_blended_3_to_1, 0.237);
+      assert.equal(kimi.median_output_tokens_per_second, 100);
+      assert.equal(cached.costs["kimi-k3"], 0.0869);
+    } finally {
+      fetcher.restore();
+    }
+  });
+});
+
+test("the blended rate is AA's 3:1 mix, and unmeasured fields drop their segments", async () => {
+  await withAgentDir(async () => {
+    const rows = [
+      {
+        id: "x", name: "Muse Spark 1.2", slug: "muse-spark-1-2",
+        evaluations: { artificial_analysis_intelligence_index: 50, artificial_analysis_coding_index: null },
+        artificial_analysis_intelligence_index_cost: null,
+        pricing: { price_1m_input_tokens: 4, price_1m_output_tokens: 20 },
+        performance: { median_output_tokens_per_second: null },
+      },
+    ];
+    const fetcher = withFetch(async () => ({
+      ok: true,
+      status: 200,
+      json: async () => ({ pagination: { page: 1, total_pages: 1 }, data: rows }),
+    }));
+    try {
+      const ui = mount();
+      await ui.select(model("muse-spark-1-2", "opencode"));
+      // (3 × 4 + 20) / 4 = 8; no coding index, speed or $/task to show.
+      assert.equal(ui.notifies[0].message, "Muse Spark 1.2 — int 50 · $8/1M (AA)");
+    } finally {
+      fetcher.restore();
+    }
+  });
+});
+
+test("a page that fails fails the refresh, rather than briefing half a list", async () => {
+  await withAgentDir(async () => {
+    const pages = serve(SAMPLE, { costs: COST_BY_SLUG, pageSize: 2 });
+    const fetcher = withFetch(async (url) => {
+      if (new URL(String(url)).searchParams.get("page") === "3") throw new Error("offline");
+      return pages(url);
+    });
+    try {
+      const ui = mount();
+      // Opus sits on page 1, so a partial list would have briefed it.
+      await ui.select(model("claude-opus-5"));
+      assert.equal(ui.notifies.length, 0);
     } finally {
       fetcher.restore();
     }
@@ -578,14 +660,7 @@ test("peers within ±1.0 int from big labs ride a second line", async () => {
         median_output_tokens_per_second: 100,
       },
     ];
-    const fetcher = withFetch(async (url) => ({
-      ok: true,
-      status: 200,
-      json: async () =>
-        String(url).includes("/language/models/free")
-          ? { status: 200, data: [] }
-          : { status: 200, data: rows },
-    }));
+    const fetcher = withFetch(serve(rows));
     try {
       const ui = mount();
       await ui.select(model("muse-spark-1-2", "opencode"));
@@ -603,7 +678,7 @@ test("peers within ±1.0 int from big labs ride a second line", async () => {
   });
 });
 
-test("moonshot models appear as peers", async () => {
+test("kimi models appear as peers", async () => {
   await withAgentDir(async () => {
     const rows = [
       {
@@ -615,20 +690,14 @@ test("moonshot models appear as peers", async () => {
       },
       {
         id: "k", name: "Kimi K3", slug: "kimi-k3",
-        model_creator: { name: "Moonshot AI", slug: "moonshotai" },
+        // AA's free rows name the creator only, and name Moonshot by its brand.
+        model_creator: { name: "Kimi" },
         evaluations: { artificial_analysis_intelligence_index: 60.2 },
         pricing: { price_1m_blended_3_to_1: 1 },
         median_output_tokens_per_second: 100,
       },
     ];
-    const fetcher = withFetch(async (url) => ({
-      ok: true,
-      status: 200,
-      json: async () =>
-        String(url).includes("/language/models/free")
-          ? { status: 200, data: [] }
-          : { status: 200, data: rows },
-    }));
+    const fetcher = withFetch(serve(rows));
     try {
       const ui = mount();
       await ui.select(model("muse-spark-1-2", "opencode"));
@@ -658,14 +727,7 @@ test("no peer line when nothing lands in range", async () => {
         median_output_tokens_per_second: 100,
       },
     ];
-    const fetcher = withFetch(async (url) => ({
-      ok: true,
-      status: 200,
-      json: async () =>
-        String(url).includes("/language/models/free")
-          ? { status: 200, data: [] }
-          : { status: 200, data: rows },
-    }));
+    const fetcher = withFetch(serve(rows));
     try {
       const ui = mount();
       await ui.select(model("muse-spark-1-2", "opencode"));
@@ -693,14 +755,7 @@ test("a miss against a stale (>12h) cache buys one early refresh", async () => {
         median_output_tokens_per_second: 120,
       },
     ];
-    const museFetch = async (url) => ({
-      ok: true,
-      status: 200,
-      json: async () =>
-        String(url).includes("/language/models/free")
-          ? { status: 200, data: [] }
-          : { status: 200, data: spark },
-    });
+    const museFetch = serve(spark);
 
     // 13 hours old: the miss is worth one forced re-fetch. The fresh snapshot
     // still lacks 1.3, so the pending line is all the briefing can say.
@@ -803,14 +858,7 @@ test("when nothing is within ±1.0, the nearest peers take the line as Near", as
         median_output_tokens_per_second: 100,
       },
     ];
-    const fetcher = withFetch(async (url) => ({
-      ok: true,
-      status: 200,
-      json: async () =>
-        String(url).includes("/language/models/free")
-          ? { status: 200, data: [] }
-          : { status: 200, data: rows },
-    }));
+    const fetcher = withFetch(serve(rows));
     try {
       const ui = mount();
       await ui.select(model("muse-spark-1.3", "opencode"));
@@ -848,24 +896,7 @@ test("a point release AA hasn't scored yet says so instead of a sibling's number
         median_output_tokens_per_second: 110,
       },
     ];
-    const fetcher = withFetch(async (url) => ({
-      ok: true,
-      status: 200,
-      json: async () =>
-        String(url).includes("/language/models/free")
-          ? {
-              status: 200,
-              data: [
-                {
-                  slug: "muse-spark-1-2",
-                  artificial_analysis_intelligence_index_cost: {
-                    cost_per_task: { total_cost: 0.3992 },
-                  },
-                },
-              ],
-            }
-          : { status: 200, data: spark },
-    }));
+    const fetcher = withFetch(serve(spark, { costs: { "muse-spark-1-2": 0.3992 } }));
     try {
       const ui = mount();
       // Exact row briefs as usual.
