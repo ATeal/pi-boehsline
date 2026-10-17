@@ -26,6 +26,19 @@ jobs:
       - run: scripts/typecheck.sh --link-only
       - run: npm test
 
+  test-macos:
+    # The full suite on macOS too: Safari fetch, osascript, Keychain and
+    # notification code paths only run here.
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+      - run: npm install --no-audit --no-fund
+      - run: scripts/typecheck.sh --link-only
+      - run: npm test
+
   typecheck:
     runs-on: ubuntu-latest
     steps:
