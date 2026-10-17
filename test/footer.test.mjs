@@ -2269,6 +2269,25 @@ test("bottom border left: the chips start the line, pi's ↓ stays at the right;
   });
 });
 
+test("top border left: the chips follow the name; an old 'top border' means right", async () => {
+  const chips = [{ text: "dotfiles", width: 8 }, { text: "main*", width: 5 }];
+  const id = (t) => t;
+  const left = topBorderLayout("my-session", chips, 0, 40, id, "↑", "left");
+  assert.equal(left.line, "── my-session ─ dotfiles main* ─────────");
+  assert.equal(left.line.length, 40);
+  left.starts.forEach((start, i) => assert.equal(left.line.slice(start, start + chips[i].width), chips[i].text));
+  assert.equal(topBorderLayout("my-session", chips, 2, 40, id, "↑", "left").line, "── my-session ─ dotfiles ─── ↑ 2 more ──");
+  await withAgentDir(async (dir) => {
+    writeFileSync(path.join(dir, "footer.json"), JSON.stringify({ placement: "top border left" }));
+    const ui = await mount({ mode: "tui", sessionName: "my-session", editorFactory: () => fakeEditor() });
+    await ui.settled();
+    const editor = ui.editorFactory()();
+    assert.match(strip(editor.renderTopBorder(120, 0)), /^\{──\} \{my-session\} \{─\} dotfiles master\* gh opus hi 41\/1m \{─+\}$/);
+    writeFileSync(path.join(dir, "footer.json"), JSON.stringify({ placement: "top border" }));
+    assert.equal(readFooterConfig().placement, "top border right", "saved before the split: the right");
+  });
+});
+
 test("a throw while the top border lays out can't leave the name marked as drawn", async () => {
   await withAgentDir(async (dir) => {
     writeFileSync(path.join(dir, "footer.json"), JSON.stringify({ placement: "top border" }));
@@ -2302,7 +2321,7 @@ test("top-border chips are clickable in fullscreen, and other clicks reach the e
   });
 });
 
-test("/footer: Placement is the first row, cycles below → top border, and saves", async () => {
+test("/footer: Placement is the first row, cycles below → top border left → …, and saves", async () => {
   await withAgentDir(async (dir) => {
     const ui = await mount();
     const list = await openChecklist(ui);
@@ -2311,7 +2330,9 @@ test("/footer: Placement is the first row, cycles below → top border, and save
     assert.match(selected(), /→ Placement\s+below/);
     assert.ok(list.render(140).map(strip).some((line) => line.includes("in the editor's top border")), "its description");
     list.handleInput(" ");
-    assert.match(selected(), /→ Placement\s+top border/);
+    assert.match(selected(), /→ Placement\s+top border left/);
+    list.handleInput(" ");
+    assert.match(selected(), /→ Placement\s+top border right/);
     list.handleInput(" ");
     assert.match(selected(), /→ Placement\s+bottom border left/);
     list.handleInput(" ");
@@ -2320,8 +2341,8 @@ test("/footer: Placement is the first row, cycles below → top border, and save
     assert.match(selected(), /→ Placement\s+below/);
     list.handleInput(" ");
     list.handleInput("\x1bs"); // Alt+S
-    assert.equal(JSON.parse(readFileSync(path.join(dir, "footer.json"), "utf8")).placement, "top border");
-    assert.equal(readFooterConfig().placement, "top border");
+    assert.equal(JSON.parse(readFileSync(path.join(dir, "footer.json"), "utf8")).placement, "top border left");
+    assert.equal(readFooterConfig().placement, "top border left");
     writeFileSync(path.join(dir, "footer.json"), JSON.stringify({ placement: "sideways" }));
     assert.equal(readFooterConfig().placement, undefined, "an unknown placement falls back to below");
     assert.equal(LAYOUT_ROWS[0].values[0], "below");

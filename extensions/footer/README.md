@@ -42,11 +42,14 @@ visible unless the row is `hidden`. Clicking the red name, like the chip,
 turns the guardian back on.
 
 The Placement row, first in `/footer`, can move the chips themselves into
-that border, right of the name: `── my-session ──── dotfiles main* opus ──`
-(`top border`), or into the editor's bottom border, leaving the name alone
-on top: at its start (`bottom border left`: `── dotfiles main* ───── ↓ 3 more ──`)
-or right-aligned before pi's "↓ N more" (`bottom border right`; a
-`footer.json` saved with plain `bottom border` means this one).
+that border, just after the name (`top border left`:
+`── my-session ─ dotfiles main* opus ────`) or at its right end
+(`top border right`: `── my-session ──── dotfiles main* opus ──`), or into
+the editor's bottom border, leaving the name alone on top: at its start
+(`bottom border left`: `── dotfiles main* ───── ↓ 3 more ──`) or
+right-aligned before pi's "↓ N more" (`bottom border right`). A
+`footer.json` saved before the split, with plain `top border` or
+`bottom border`, means the right one.
 Chips go up in footer order while they fit whole; the rest stay below, so a
 narrow pane loses nothing, and with every chip up there is no footer row at
 all. Extension statuses keep their own row below. In fullscreen the chips in
