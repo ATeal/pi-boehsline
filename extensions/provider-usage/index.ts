@@ -32,6 +32,7 @@ import { mkdir, readFile, rename, rm, stat, writeFile } from "node:fs/promises";
 import { homedir } from "node:os";
 import { join } from "node:path";
 import { readSecret, secretSourceLabel } from "../../lib/secrets.ts";
+import { activateToolSearch } from "../../lib/tool-search.ts";
 
 const REQUEST_TIMEOUT_MS = 10_000;
 const SLOW_BILLING_TIMEOUT_MS = 30_000;
@@ -2615,9 +2616,13 @@ export default function providerUsage(pi: ExtensionAPI): void {
 
   // No promptSnippet or promptGuidelines: those duplicate this schema in the
   // system prompt. Aliases live in resolveUsageDriver, not in the description.
+  activateToolSearch(pi); // provider_usage is deferred
   pi.registerTool({
     name: "provider_usage",
     label: "Provider usage",
+    // Deferred: rarely needed, so it waits behind tool_search instead of costing
+    // context in every session. The footer chips don't use it.
+    exposure: "deferred",
     description:
       "Read cached provider usage; optionally refresh one named provider.",
     parameters: Type.Object({

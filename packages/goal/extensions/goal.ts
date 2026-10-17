@@ -334,9 +334,23 @@ export default function (pi: ExtensionAPI) {
 
   // ── start_goal tool ──
 
+  // start_goal is deferred, so tool_search must be active to reach it (the
+  // same few lines as Boehsline's lib/tool-search.ts; inline so this package
+  // stays self-contained). Not in child subagents, which stay lean.
+  pi.on("session_start", () => {
+    if (process.env.PI_SUBAGENT_CHILD) return;
+    const active = pi.getActiveTools();
+    if (active.includes("tool_search")) return;
+    if (!pi.getAllTools().some((t) => t.name === "tool_search")) return;
+    pi.setActiveTools([...active, "tool_search"]);
+  });
+
   pi.registerTool({
     name: "start_goal",
     label: "Start goal",
+    // Deferred: not declared to the model until tool_search finds it, so it costs
+    // no context in the many sessions that never time-box work. /goal is unaffected.
+    exposure: "deferred",
     description:
       "Time-box a piece of work. Starts a goal with a budget: the harness keeps you going until it's met (a check command exits 0, " +
       "or a judge agrees from your final message and the git diff) or the budget runs out, then asks for a handoff. " +

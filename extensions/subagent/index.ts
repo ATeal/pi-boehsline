@@ -2,8 +2,8 @@
  * Minimal subagent tool — DIY subprocess version.
  *
  * Boot cost: near zero.
- * - Single file, no top-level imports besides types (factory only calls
- *   pi.registerTool, no fs/process access, nothing awaited at startup).
+ * - One small file; its only runtime import is lib/tool-search.ts (factory only
+ *   calls pi.registerTool and pi.on, no fs/process access, nothing awaited).
  * - `exposure: "deferred"`: the tool is NOT declared to the model at boot,
  *   costs ~0 tokens until the model finds it via `tool_search`
  *   (activated automatically on session_start; no settings needed).
@@ -22,6 +22,7 @@
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { Text } from "@earendil-works/pi-tui";
 import { Type } from "typebox";
+import { activateToolSearch } from "../../lib/tool-search.ts";
 
 const MAX_TASKS = 8;
 const CONCURRENCY = 4;
@@ -142,16 +143,8 @@ const BUILTINS: Record<string, { tools: string; prompt: string }> = {
 };
 
 export default function (pi: ExtensionAPI) {
-	// Self-contained discovery: a deferred tool is unreachable unless tool_search
-	// is active, so turn it on (one small declaration). Skipped in child
-	// subagents, which keeps them lean and prevents recursive delegation.
-	pi.on("session_start", () => {
-		if (process.env.PI_SUBAGENT_CHILD) return;
-		const active = pi.getActiveTools();
-		if (active.includes("tool_search")) return;
-		if (!pi.getAllTools().some((t) => t.name === "tool_search")) return; // e.g. excluded by --tools
-		pi.setActiveTools([...active, "tool_search"]);
-	});
+	// A deferred tool is unreachable unless tool_search is active (lib/tool-search.ts).
+	activateToolSearch(pi);
 
 	pi.registerTool({
 		name: "subagent",

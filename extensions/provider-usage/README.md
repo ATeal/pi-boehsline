@@ -1,6 +1,6 @@
 # provider-usage
 
-Usage and quota chips for your providers, shown by the [footer](../footer/README.md). **Tool:** `provider_usage` (reads the cache; refreshes one named provider on request). Each provider also gets a command, such as `/copilot-window`.
+Usage and quota chips for your providers, shown by the [footer](../footer/README.md). **Tool:** `provider_usage`, deferred: the model finds it with `tool_search` when needed, so it costs no context otherwise (reads the cache; refreshes one named provider on request). Each provider also gets a command, such as `/copilot-window`.
 
 | Provider | Shows | Credentials |
 |---|---|---|

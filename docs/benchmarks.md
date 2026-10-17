@@ -8,29 +8,29 @@ node scripts/bench.mjs              # stock vs Boehsline vs all opt-ins on
 node scripts/bench.mjs --each       # stock pi + one extension at a time
 ```
 
-Measured 2026-10-16 on pi 1.3.0, node v26.10.0, darwin-arm64 (Apple silicon),
+Measured 2026-10-17 on pi 1.3.0, node v26.10.0, darwin-arm64 (Apple silicon),
 model `github-copilot/claude-opus-5.5`, median of 9 boots after one warm-up.
 
 ## Summary
 
 | config | wall ms | pi startup ms | tools | system ~tok | tools ~tok | total ~tok |
 |---|---|---|---|---|---|---|
-| stock pi | 445 | 108 | 4 | 1,528 | 801 | **2,329** |
-| + Boehsline (defaults) | 535 (+89) | 203 (+95) | 12 | 2,154 | 3,562 | **5,716** (+3387) |
-| + Boehsline, all opt-ins on | 554 (+109) | 221 (+113) | 14 | 2,154 | 4,056 | **6,211** (+3882) |
+| stock pi | 438 | 106 | 4 | 1,528 | 801 | **2,329** |
+| + Boehsline (defaults) | 544 (+106) | 209 (+103) | 10 | 2,154 | 3,222 | **5,376** (+3047) |
+| + Boehsline, all opt-ins on | 547 (+109) | 217 (+111) | 12 | 2,154 | 3,716 | **5,871** (+3542) |
 
-- **Boot:** Boehsline adds about 95ms to pi's startup (20% of a 445ms launch). Every opt-in on adds another ~18ms.
-- **Context:** every conversation starts about 3,387 tokens larger (2,329 → 5,716). It's part of every request's prefix: written to the provider's cache once per session, then read from it at a fraction of the price.
-- **Canvas is the largest part:** its tool schema plus its guidelines are ~1,615 tokens, about 48% of what Boehsline adds.
+- **Boot:** Boehsline adds about 103ms to pi's startup (24% of a 438ms launch). Every opt-in on adds another ~8ms.
+- **Context:** every conversation starts about 3,047 tokens larger (2,329 → 5,376). It's part of every request's prefix: written to the provider's cache once per session, then read from it at a fraction of the price.
+- **Canvas is the largest part:** its tool schema plus its guidelines are ~1,615 tokens, about 53% of what Boehsline adds.
 
 ## What changed
 
-The first measurement (same machine, same day) found two easy wins:
+The first measurement (same machine, same day) found some easy wins:
 
 | | before | after |
 |---|---|---|
-| pi startup over stock | +144ms | +95ms |
-| starting context over stock | +4,597 tokens | +3,387 tokens |
+| pi startup over stock | +144ms | +103ms |
+| starting context over stock | +4,597 tokens | +3,047 tokens |
 | canvas schema + guidelines | ~2,800 tokens | ~1,615 tokens |
 | `session_start` handlers, all extensions | 83ms | 7ms |
 
@@ -38,6 +38,7 @@ The first measurement (same machine, same day) found two easy wins:
 - **agent-link** awaited its socket and a probe of every live peer (for a free name) in `session_start`: ~60ms with a dozen sessions open. It now starts in the background; anything that touches its peer record waits for it.
 - **bg** pruned old logs (an `lstat` per file, thousands of them) during `session_start`; now async, 5 seconds after boot.
 - **tmux-attention** spawned `tmux` while pi booted to stamp the pane; now a second later.
+- **start_goal and provider_usage** are deferred: not declared to the model until `tool_search` finds them (~340 tokens). Every extension with a deferred tool turns `tool_search` on (`lib/tool-search.ts`), so they stay reachable without subagent.
 
 ## Where the tokens go
 
@@ -49,56 +50,54 @@ Tool schemas with Boehsline's defaults (characters ÷ 3.6):
 | `edit` | 328 | pi |
 | `ask` | 321 | Boehsline |
 | `web_search` | 275 | Boehsline |
-| `start_goal` | 248 | Boehsline |
 | `bash` | 233 | pi (+82 from bg's `background` flag) |
 | `agent-link` | 230 | Boehsline |
 | `tool_search` | 193 | Boehsline |
 | `read` | 190 | pi |
 | `web_fetch` | 141 | Boehsline |
 | `write` | 119 | pi |
-| `provider_usage` | 92 | Boehsline |
 
-`tool_search` is pi's: it appears once any tool is *deferred* (subagent is), and a deferred tool then costs nothing until the model looks it up. The system prompt grows by ~626 tokens: canvas's guidelines, one-line descriptions of the new tools, and the `pi-agent-link` skill entry.
+`tool_search` is pi's: it's turned on for the *deferred* tools (subagent, start_goal, provider_usage), and a deferred tool then costs nothing until the model looks it up. The system prompt grows by ~626 tokens: canvas's guidelines, one-line descriptions of the new tools, and the `pi-agent-link` skill entry.
 
 ## Each extension on its own
 
-Stock pi plus that one extension, opt-ins enabled, median of 5. Single-digit differences are noise at this run count.
+Stock pi plus that one extension, opt-ins enabled, median of 5. Single-digit differences are noise at this run count. An extension with a deferred tool shows `tool_search` here; with all of Boehsline it's shared.
 
 | extension | +startup ms | +~tokens | tools |
 |---|---|---|---|
-| canvas | 13 | 1,615 | `canvas` |
-| opt-in/watch | 7 | 495 | `watch_items`, `watch_lookup` |
-| web | 2 | 416 | `web_search`, `web_fetch` |
-| ask | 4 | 322 | `ask` |
-| packages/agent-link | 6 | 268 | `agent-link` |
-| packages/goal | 0 | 248 | `start_goal` |
-| subagent | 1 | 201 | `tool_search` |
-| provider-usage | 5 | 92 | `provider_usage` |
-| bg | 3 | 82 |  |
-| footer | 36 | 0 |  |
-| prompt-history | 15 | 0 |  |
-| code-lint | 10 | 0 |  |
-| cursor-focus | 9 | 0 |  |
-| opt-in/omlx | 9 | 0 |  |
-| auto-session-name | 8 | 0 |  |
+| canvas | 14 | 1,615 | `canvas` |
+| opt-in/watch | 19 | 495 | `watch_items`, `watch_lookup` |
+| web | 10 | 416 | `web_search`, `web_fetch` |
+| ask | 8 | 322 | `ask` |
+| packages/agent-link | 9 | 268 | `agent-link` |
+| provider-usage | 13 | 201 | `tool_search` |
+| subagent | 12 | 201 | `tool_search` |
+| packages/goal | 7 | 201 | `tool_search` |
+| bg | 8 | 82 |  |
+| footer | 37 | 0 |  |
+| openrouter-route | 23 | 0 |  |
+| stash | 22 | 0 |  |
+| opt-in/omlx | 16 | 0 |  |
+| opt-in/approval-guardian | 15 | 0 |  |
+| next-steps | 13 | 0 |  |
+| boehsline | 12 | 0 |  |
+| color | 12 | 0 |  |
+| compaction | 12 | 0 |  |
+| cursor-focus | 12 | 0 |  |
+| prompt-history | 12 | 0 |  |
+| auto-session-name | 11 | 0 |  |
+| opt-in/meeting | 11 | 0 |  |
+| aa-info | 9 | 0 |  |
+| image-preview | 9 | 0 |  |
+| opt-in/wiki-session-log | 9 | 0 |  |
+| code-lint | 8 | 0 |  |
 | compact-progress | 8 | 0 |  |
-| opt-in/approval-guardian | 8 | 0 |  |
-| boehsline | 7 | 0 |  |
-| color | 7 | 0 |  |
-| compaction | 6 | 0 |  |
-| image-preview | 5 | 0 |  |
-| stash | 5 | 0 |  |
-| aa-info | 4 | 0 |  |
-| next-steps | 3 | 0 |  |
-| opt-in/meeting | 2 | 0 |  |
-| opt-in/update | 2 | 0 |  |
-| opt-in/wiki-session-log | 2 | 0 |  |
-| openrouter-route | 1 | 0 |  |
-| packages/scheduler | 1 | 0 |  |
-| turn-timer | -1 | 0 |  |
-| opt-in/tmux-attention | -1 | 0 |  |
-| opt-in/sc | -2 | 0 |  |
-| packages/context | -3 | 0 |  |
+| opt-in/sc | 8 | 0 |  |
+| opt-in/tmux-attention | 8 | 0 |  |
+| packages/scheduler | 8 | 0 |  |
+| turn-timer | 5 | 0 |  |
+| opt-in/update | 5 | 0 |  |
+| packages/context | 5 | 0 |  |
 
 What's left at startup is mostly deliberate: omlx asks your local oMLX server what's loaded before pi resolves models (a refused port is instant; a hung server is capped at 750ms), and approval-guardian and watch are large modules (both opt-in).
 
