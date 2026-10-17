@@ -9,7 +9,11 @@
  * get a real title. One cheap flash-model call, trying DEFAULT_NAME_MODELS in
  * order until one answers (a 402/quota error just falls through to the next);
  * override with PI_AUTO_NAME_MODEL=provider/id[,provider/id...], disable with
- * PI_AUTO_NAME=0.
+ * PI_AUTO_NAME=0. When none of the defaults has credentials (no OpenCode Go,
+ * say), the session's own model names it, so the text only goes where the
+ * session already sends it. An explicit PI_AUTO_NAME_MODEL list never falls
+ * back, so it can pin naming to free models. With no usable model at all it
+ * stays quiet.
  */
 
 import { randomUUID } from "node:crypto";
@@ -169,9 +173,11 @@ const modelKey = (m: NameModel) => `${m.provider}/${m.id}`;
  * on a pay-per-token provider.
  */
 export function candidateModels(
-  ctx: Pick<ExtensionContext, "modelRegistry">,
+  ctx: Pick<ExtensionContext, "modelRegistry"> & { model?: unknown },
   specs: string[],
   state: NamerState = {},
+  // parseModelList hands back DEFAULT_NAME_MODELS itself when nothing is set.
+  fallback = specs === DEFAULT_NAME_MODELS,
 ): NameModel[] {
   const reg = ctx.modelRegistry as unknown as NamingRegistry;
   const hasAuth = (m: NameModel) =>
@@ -187,10 +193,15 @@ export function candidateModels(
       add(reg.find(spec.slice(0, slash), spec.slice(slash + 1)));
     }
   }
+  // None of the default naming models is set up: the session's own model.
+  if (!out.length && fallback) add(ctx.model as NameModel | undefined);
   const i = state.preferred ? out.findIndex((m) => modelKey(m) === state.preferred) : -1;
   if (i > 0) out.unshift(...out.splice(i, 1));
   return out;
 }
+
+/** generateTitle's error when there is no model it could ask at all. */
+export const NO_NAMING_MODEL = "no naming model with credentials";
 
 /**
  * Ask each candidate in turn for a title. Provider errors (stopReason "error",
@@ -198,7 +209,7 @@ export function candidateModels(
  * they are checked explicitly. Throws with every model's reason if none work.
  */
 export async function generateTitle(
-  ctx: Pick<ExtensionContext, "modelRegistry">,
+  ctx: Pick<ExtensionContext, "modelRegistry"> & { model?: unknown },
   source: string,
   state: NamerState = {},
   specs: string[] = parseModelList(process.env.PI_AUTO_NAME_MODEL),
@@ -207,7 +218,7 @@ export async function generateTitle(
   const reg = ctx.modelRegistry as unknown as NamingRegistry;
   if (typeof reg?.complete !== "function") throw new Error("modelRegistry.complete unavailable");
   const candidates = candidateModels(ctx, specs, state);
-  if (!candidates.length) throw new Error("no naming model with credentials");
+  if (!candidates.length) throw new Error(NO_NAMING_MODEL);
   const errors: string[] = [];
   for (const model of candidates) {
     try {
@@ -287,6 +298,9 @@ export default function (pi: ExtensionAPI) {
       if (title) failures = 0;
       else attempted = false;
     } catch (e) {
+      // Nothing to ask (no naming model, no session model with credentials):
+      // not a failure worth a warning, and retrying won't change it.
+      if ((e as Error).message === NO_NAMING_MODEL) return;
       // Retry on later turns, but stop hammering providers that keep refusing.
       failures += 1;
       attempted = failures >= MAX_AUTO_FAILURES;

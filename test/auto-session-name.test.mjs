@@ -10,6 +10,7 @@ import test from "node:test";
 import {
   candidateModels,
   DEFAULT_NAME_MODELS,
+  NO_NAMING_MODEL,
   generateTitle,
   hasHistory,
   isUserGivenName,
@@ -140,7 +141,23 @@ test("candidateModels skips unauthed models and puts the preferred one first", (
   );
 });
 
-test("candidateModels never falls back to unlisted models", () => {
+test("with the default list and no OpenCode Go, the session's own model names it", () => {
+  const session = { provider: "anthropic", id: "claude-sonnet" };
+  const ctx = { modelRegistry: fakeRegistry([session], {}), model: session };
+  assert.deepEqual(
+    candidateModels(ctx, DEFAULT_NAME_MODELS).map((m) => `${m.provider}/${m.id}`),
+    ["anthropic/claude-sonnet"],
+  );
+  assert.equal(parseModelList(""), DEFAULT_NAME_MODELS, "unset env means the default list itself");
+  const nothing = { modelRegistry: fakeRegistry([{ provider: "x", id: "y", noAuth: true }], {}), model: { provider: "x", id: "y", noAuth: true } };
+  assert.deepEqual(candidateModels(nothing, DEFAULT_NAME_MODELS), [], "a session model without credentials isn't used");
+});
+
+test("generateTitle with no usable model throws NO_NAMING_MODEL, which the auto path keeps quiet", async () => {
+  await assert.rejects(generateTitle({ modelRegistry: fakeRegistry([], {}) }, "user: hi", {}, ["a/missing"]), new RegExp(NO_NAMING_MODEL));
+});
+
+test("an explicit model list never falls back to unlisted models", () => {
   const models = [
     { provider: "inco", id: "deepseek-v4.1-flash:fast" },
     { provider: "opencode-go", id: "deepseek-v4.1-flash" },
