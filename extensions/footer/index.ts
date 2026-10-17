@@ -122,7 +122,7 @@ export const FOOTER_CHIPS = [
   { id: "context", label: "Context", example: "42k/1m", description: "Context tokens / window, or a percent, coloured as it fills. Click: flip for this session." },
   { id: "idle", label: "Idle compaction", example: "⏲ 2:41p", description: "When idle compaction fires (54 minutes after the last request): a clock time or a countdown. /idle explains when it is missing." },
   { id: "cost", label: "Cost", example: "$0.42", description: "Session cost, or a provider budget (ollama, baseten, openrouter) as a percent (compact) or total (detailed). Click: flip for this session." },
-  { id: "usage", label: "Rate limits", example: "57%", description: "Provider usage windows: Copilot premium-request share over workdays (W) with the ↓%/d left per workday, Codex/Grok/Claude windows, compact, detailed, or mini (just ↑ speed up / ↓ slow down, hidden on pace). Click: cycle for this session." },
+  { id: "usage", label: "Rate limits", example: "57%", description: "Provider usage windows: Copilot premium-request share over workdays (W) with the %/d left per workday, Codex/Grok/Claude windows, compact, detailed, or mini (just ↑ speed up / ↓ slow down, hidden on pace). Click: cycle for this session." },
   { id: "boot", label: "Boot time", example: "⚡775ms", description: "⚡ startup time, until the first message. Click: recent boot stats." },
   { id: "rate", label: "Token rate", example: "99", description: "Tokens per second of the last reply (live while streaming), alone or with the time to first token. Click: flip for this session." },
   { id: "name", label: "Session name", example: "session-name", description: "Session name, or the dim peer name other agents use. Click: prefill /auto-name." },
@@ -171,6 +171,8 @@ export interface FooterConfig {
   thinkingWhen?: string;
   /** When the usage chip shows, by pace: "unless on pace", "when > 10 ahead", "when > 20 ahead"; absent means always. */
   usageWhen?: string;
+  /** "on" adds each window's pace (↓8 ahead / ↑12 behind) to compact and detailed, and points to mini. */
+  usagePace?: string;
   /** Copilot workdays off still ahead this cycle ("0"–"15"); provider-usage reads it for the ↓%/d allowance. */
   copilotOoo?: string;
   /** When copilotOoo was set; provider-usage ignores it once a new Copilot cycle starts. */
@@ -232,6 +234,13 @@ export const CONDITION_ROWS = [
     label: "Usage condition",
     description: "Hide the rate-limits chip by pace: on pace means no window is more than 5 points ahead or behind. A limit (↻) or an unreadable format always shows.",
     values: ["always", "unless on pace", "when > 10 ahead", "when > 20 ahead"],
+  },
+  {
+    key: "usagePace",
+    chip: "usage",
+    label: "Usage pace",
+    description: "Add each window's pace after its %: ↓8 is 8 points ahead (slow down), ↑12 is 12 behind (speed up); nothing within ±5. Mini shows ↓8 instead of ↓.",
+    values: ["off", "on"],
   },
   {
     key: "copilotOoo",
@@ -1699,15 +1708,37 @@ export function usageChipHidden(when: string | undefined, pace: UsagePace): bool
  * more than 5 behind (green, bright green, bold green), nothing on pace. An
  * unreadable chip returns undefined so the caller can fall back to compact.
  */
-export function renderMiniUsage(value: string): string | undefined {
+export function renderMiniUsage(value: string, withPoints = false): string | undefined {
   const pace = usagePace(value);
   if ("limit" in pace) return color(RED, "↓");
   if ("unknown" in pace) return undefined;
-  if (pace.worst > ON_PACE_BAND) return color(paceColor(pace.worst), "↓");
-  const behind = -pace.worst;
-  if (behind <= ON_PACE_BAND) return "";
-  if (behind > 20) return `\x1b[1;92m↑\x1b[22;39m`;
-  return color(behind > 10 ? 92 : GREEN, "↑");
+  return paceMark(pace.worst, withPoints);
+}
+
+/**
+ * A window's pace as a mark: ↓ ahead (yellow, orange >10, red >20), ↑ behind
+ * (green, bright green >10, bold green >20), "" within ±5. With points, the
+ * rounded distance follows the arrow: ↓8, ↑12.
+ */
+export function paceMark(pace: number, withPoints = true): string {
+  if (Math.abs(pace) <= ON_PACE_BAND) return "";
+  const points = withPoints ? String(Math.round(Math.abs(pace))) : "";
+  if (pace > 0) return color(paceColor(pace), `↓${points}`);
+  if (-pace > 20) return `\x1b[1;92m↑${points}\x1b[22;39m`;
+  return color(-pace > 10 ? 92 : GREEN, `↑${points}`);
+}
+
+/** Older provider-usage wrote the Copilot allowance as "↓3.9%/d"; it reads "3.9%/d" now. */
+function stripAllowanceArrow(value: string): string {
+  return value.replace(/↓(?=\d+(?:\.\d+)?%\/d)/g, "");
+}
+
+/** Color `text` with `code`, gluing the pace mark (its own colors) after the first %. */
+function withPaceMark(code: number | string, text: string, mark: string): string {
+  const at = mark ? /\d+(?:\.\d+)?%/.exec(text) : null;
+  if (!at) return color(code, text);
+  const end = at.index + at[0].length;
+  return `${color(code, text.slice(0, end))}${mark}${color(code, text.slice(end))}`;
 }
 
 /** Strip legacy trailing !s (stale cache) so they never paint. */
@@ -1740,14 +1771,15 @@ function parseWindowValue(group: string): string | undefined {
 }
 
 /** Render provider windows long, or percentages-only compact "4%/33%" form. */
-function renderWindowUsage(value: string, compact: boolean): string {
+function renderWindowUsage(value: string, compact: boolean, showPace = false): string {
   const groups = windowGroups(value);
+  const mark = (group: string) => {
+    const pace = showPace ? parseWindowPace(group) : undefined;
+    return pace === undefined ? "" : paceMark(pace);
+  };
   if (!compact) {
     return groups
-      .map((group) => {
-        const clean = stripBangs(group);
-        return color(paceWarningColorCode(group), clean);
-      })
+      .map((group) => withPaceMark(paceWarningColorCode(group), stripBangs(group), mark(group)))
       .join(" ");
   }
   const values = groups.map(parseWindowValue);
@@ -1758,7 +1790,10 @@ function renderWindowUsage(value: string, compact: boolean): string {
       .join(" ");
   }
   return (values as string[])
-    .map((window, index) => color(paceWarningColorCode(groups[index] as string), window))
+    .map((window, index) => {
+      const group = groups[index] as string;
+      return withPaceMark(paceWarningColorCode(group), window, mark(group));
+    })
     .join(color(BRIGHT_BLACK, "/"));
 }
 
@@ -2095,11 +2130,13 @@ export default function footerExtension(pi: ExtensionAPI): void {
                   : color(GREEN, formatCost(sessionCost(ctx.sessionManager.getBranch()))),
             ],
             ...INLINE_STATUS_KEYS.map((key) => {
-              const value = statuses.get(key);
+              const raw = statuses.get(key);
+              const value = raw ? stripAllowanceArrow(raw) : raw;
               // Per-window coloring: a red 5h shouldn't paint the week red too.
               if (!value || usageChipHidden(footerConfig.usageWhen, usagePace(value))) return ["usage", ""] as const;
-              const mini = usageMode === "mini" ? renderMiniUsage(value) : undefined;
-              return ["usage", mini ?? renderWindowUsage(value, usageMode !== "detailed")] as const;
+              const showPace = footerConfig.usagePace === "on";
+              const mini = usageMode === "mini" ? renderMiniUsage(value, showPace) : undefined;
+              return ["usage", mini ?? renderWindowUsage(value, usageMode !== "detailed", showPace)] as const;
             }),
             ["boot", showBoot ? theme.fg("dim", `⚡${formatMs(bootMs as number)}`) : ""],
             // Waiting for the first token: the TTFT counts up, dim (detailed

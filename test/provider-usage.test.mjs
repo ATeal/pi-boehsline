@@ -246,7 +246,7 @@ test("Copilot caches a date-only reset without inventing a time", () => {
   const display = copilotUsageDisplay({ percent_remaining: 70, reset_date: "2023-12-01" }, undefined, NOW);
   assert.equal(display.resetDate, "2023-12-01");
   assert.equal(display.resetMs, undefined);
-  assert.match(display.value, /W: 30% ↓[\d.]+%\/d$/);
+  assert.match(display.value, /W: 30% [\d.]+%\/d$/);
   const copilot = row("copilot-window", { "copilot-window": { ...display, fetchedAt: NOW - 30_000 } });
   assert.equal(copilot.resetDate, "2023-12-01");
   assert.equal(
@@ -264,12 +264,12 @@ test("Copilot paces by local workdays and spreads what is left over the workdays
   const now = new Date(2026, 9, 16, 12).getTime();
   // Elapsed: Oct 1–2, 5–9, 12–15 + half of the 16th = 11.5 of 22 workdays.
   // Allowance: 41% over today + 10 more workdays = 3.7%/d.
-  assert.equal(copilotUsageDisplay({ percent_remaining: 41 }, reset, now).value, "11.5/22W: 59% ↓3.7%/d");
+  assert.equal(copilotUsageDisplay({ percent_remaining: 41 }, reset, now).value, "11.5/22W: 59% 3.7%/d");
   // Two OOO days ahead: 20 workdays, 41% over 9 days.
-  assert.equal(copilotUsageDisplay({ percent_remaining: 41 }, reset, now, 2).value, "11.5/20W: 59% ↓4.6%/d");
+  assert.equal(copilotUsageDisplay({ percent_remaining: 41 }, reset, now, 2).value, "11.5/20W: 59% 4.6%/d");
   // Saturday adds no workday time; the allowance starts Monday.
   const saturday = new Date(2026, 9, 17, 12).getTime();
-  assert.equal(copilotUsageDisplay({ percent_remaining: 41 }, reset, saturday).value, "12/22W: 59% ↓4.1%/d");
+  assert.equal(copilotUsageDisplay({ percent_remaining: 41 }, reset, saturday).value, "12/22W: 59% 4.1%/d");
   // More OOO than workdays left: no allowance to show.
   assert.equal(copilotUsageDisplay({ percent_remaining: 41 }, reset, now, 15).value, "11.5/11.5W: 59%");
 });

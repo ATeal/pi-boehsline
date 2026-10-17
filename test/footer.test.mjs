@@ -28,6 +28,7 @@ import footer, {
   defaultChipHidden,
   dirLabel,
   readChipDefaults,
+  paceMark,
   renderMiniUsage,
   usageChipHidden,
   usagePace,
@@ -795,10 +796,10 @@ test("usage chips color by pace in compact and long forms", async () => {
 test("Copilot workday windows (W) pace-color and keep the allowance in compact form", async () => {
   // 11/20W is 55% elapsed: 59% is 4 ahead (gray), 70% is 15 ahead (orange).
   let ui = await mount({ statuses: new Map([["copilot-window", "11/20W: 59% ↓3.9%/d"]]) });
-  assert.match(ui.plain()[0], /59% ↓3\.9%\/d$/, "compact drops the window, keeps the allowance");
-  assert.match(ui.raw()[0], /\x1B\[90m59% ↓3\.9%\/d\x1B\[39m/);
+  assert.match(ui.plain()[0], /59% 3\.9%\/d$/, "compact drops the window, keeps the allowance (an older ↓ stripped)");
+  assert.match(ui.raw()[0], /\x1B\[90m59% 3\.9%\/d\x1B\[39m/);
   ui = await mount({ statuses: new Map([["copilot-window", "11/20W: 70% ↓3.3%/d"]]) });
-  assert.match(ui.raw()[0], /\x1B\[38;5;208m70% ↓3\.3%\/d\x1B\[39m/);
+  assert.match(ui.raw()[0], /\x1B\[38;5;208m70% 3\.3%\/d\x1B\[39m/);
 });
 
 test("Copilot OOO days read from footer.json and expire with the month", async () => {
@@ -912,7 +913,8 @@ test("/footer's Copilot OOO row sits under Rate limits, emits the change and sav
     const shown = list.render(140).map(strip);
     const at = shown.findIndex((line) => /^\s*(→ )?Rate limits/.test(line));
     assert.match(shown[at + 1], /^ {4}Usage condition\s+always/);
-    assert.match(shown[at + 2], /^ {4}Copilot OOO days\s+0/);
+    assert.match(shown[at + 2], /^ {4}Usage pace\s+off/);
+    assert.match(shown[at + 3], /^ {4}Copilot OOO days\s+0/);
     const selected = () => list.render(140).map(strip).find((line) => line.startsWith("→"));
     for (let i = 0; i < 30 && !/Copilot OOO/.test(selected()); i += 1) list.handleInput("j");
     list.handleInput("\r"); // 0 → 1
@@ -972,8 +974,8 @@ test("mini: ↓ on the slow-down ladder, ↑ on a green one, nothing on pace", (
 test("mini renders just the arrow; the Usage condition hides compact on pace; a click cycles compact → detailed → mini", async () => {
   await withAgentDir(async (dir) => {
     // 12.1/20.2W is ~59.9% elapsed: 75% is ~15 ahead (orange), 60% is on pace.
-    const ahead = new Map([["copilot-window", "12.1/20.2W: 75% ↓1.2%/d"]]);
-    const onPace = new Map([["copilot-window", "12.1/20.2W: 60% ↓4.3%/d"]]);
+    const ahead = new Map([["copilot-window", "12.1/20.2W: 75% 1.2%/d"]]);
+    const onPace = new Map([["copilot-window", "12.1/20.2W: 60% 4.3%/d"]]);
 
     writeFileSync(path.join(dir, "footer.json"), JSON.stringify({ modes: { usage: "mini" } }));
     const mini = await mount({ statuses: ahead });
@@ -984,18 +986,62 @@ test("mini renders just the arrow; the Usage condition hides compact on pace; a 
     writeFileSync(path.join(dir, "footer.json"), JSON.stringify({ usageWhen: "unless on pace" }));
     assert.doesNotMatch((await mount({ statuses: onPace })).plain()[0], /60%/, "compact hidden on pace");
     const shown = await mount({ statuses: ahead });
-    assert.match(shown.plain()[0], / 75% ↓1\.2%\/d$/, "compact shown when ahead");
+    assert.match(shown.plain()[0], / 75% 1\.2%\/d$/, "compact shown when ahead");
 
     writeFileSync(path.join(dir, "footer.json"), JSON.stringify({}));
     const ui = await mount({ statuses: ahead });
     const x = () => ui.plain()[0].lastIndexOf(" ") + 1;
-    assert.match(ui.plain()[0], / 75% ↓1\.2%\/d$/, "compact by default");
+    assert.match(ui.plain()[0], / 75% 1\.2%\/d$/, "compact by default");
     ui.click(ui.plain()[0].indexOf("75%"), 0);
-    assert.match(ui.plain()[0], / 12\.1\/20\.2W: 75% ↓1\.2%\/d$/, "detailed");
+    assert.match(ui.plain()[0], / 12\.1\/20\.2W: 75% 1\.2%\/d$/, "detailed");
     ui.click(ui.plain()[0].indexOf("12.1"), 0);
     assert.match(ui.plain()[0], / ↓$/, "mini");
     ui.click(x(), 0);
-    assert.match(ui.plain()[0], / 75% ↓1\.2%\/d$/, "back to compact");
+    assert.match(ui.plain()[0], / 75% 1\.2%\/d$/, "back to compact");
+  });
+});
+
+test("paceMark: ↓N ahead, ↑N behind, rounded, colored on the two ladders, nothing within ±5", () => {
+  assert.equal(paceMark(5), "");
+  assert.equal(paceMark(-5), "");
+  assert.equal(paceMark(7.6), "\x1b[33m↓8\x1b[39m");
+  assert.equal(paceMark(15), "\x1b[38;5;208m↓15\x1b[39m");
+  assert.equal(paceMark(25), "\x1b[31m↓25\x1b[39m");
+  assert.equal(paceMark(-8), "\x1b[32m↑8\x1b[39m");
+  assert.equal(paceMark(-12.4), "\x1b[92m↑12\x1b[39m");
+  assert.equal(paceMark(-30), "\x1b[1;92m↑30\x1b[22;39m");
+  assert.equal(paceMark(8, false), "\x1b[33m↓\x1b[39m", "without points: the bare arrow");
+});
+
+test("Usage pace on: each window's mark follows its %, in compact, detailed and mini", async () => {
+  await withAgentDir(async (dir) => {
+    // 5H: 70% elapsed, 4% used → 66 behind. 7D: ~14.3% elapsed, 22% used → ~8 ahead.
+    const codex = new Map([["codex-window", "3.5/5H: 4% 1/7D: 22%"]]);
+    // 12.1/20.2W ≈ 59.9% elapsed: 75% is ~15 ahead; 60% is on pace.
+    const copilot = new Map([["copilot-window", "12.1/20.2W: 75% 1.2%/d"]]);
+    const onPace = new Map([["copilot-window", "12.1/20.2W: 60% 4.3%/d"]]);
+
+    writeFileSync(path.join(dir, "footer.json"), JSON.stringify({ usagePace: "on" }));
+    let ui = await mount({ statuses: codex });
+    assert.match(ui.plain()[0], / 4%↑66\/22%↓8$/, "compact, per window");
+    assert.match(ui.raw()[0], /\x1b\[1;92m↑66\x1b\[22;39m/, "66 behind: bold green");
+    assert.match(ui.raw()[0], /\x1b\[33m22%\x1b\[39m\x1b\[33m↓8\x1b\[39m/, "the % keeps its pace color, the mark its own");
+    ui = await mount({ statuses: copilot });
+    assert.match(ui.plain()[0], / 75%↓15 1\.2%\/d$/, "Copilot: the mark sits after the %, before the allowance");
+    ui = await mount({ statuses: onPace });
+    assert.match(ui.plain()[0], / 60% 4\.3%\/d$/, "on pace: no mark");
+
+    writeFileSync(path.join(dir, "footer.json"), JSON.stringify({ usagePace: "on", modes: { usage: "detailed" } }));
+    ui = await mount({ statuses: codex });
+    assert.match(ui.plain()[0], / 3\.5\/5H: 4%↑66 1\/7D: 22%↓8$/, "detailed, per window");
+
+    writeFileSync(path.join(dir, "footer.json"), JSON.stringify({ usagePace: "on", modes: { usage: "mini" } }));
+    ui = await mount({ statuses: copilot });
+    assert.match(ui.plain()[0], / ↓15$/, "mini gets points with pace on");
+
+    writeFileSync(path.join(dir, "footer.json"), JSON.stringify({}));
+    ui = await mount({ statuses: codex });
+    assert.match(ui.plain()[0], / 4%\/22%$/, "pace off (the default): no marks");
   });
 });
 

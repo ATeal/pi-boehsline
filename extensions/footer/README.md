@@ -49,14 +49,18 @@ level this model starts on: its `modelThinkingLevels` entry, else
 `defaultThinkingLevel`, else pi's `medium` (settings.json, a project's
 `.pi/settings.json` first). Switching away shows it again.
 
-The Rate limits chip has three modes: `compact` (`61.4% ↓4.3%/d`), `detailed`
-(`12.1/20.2W: 61.4% ↓4.3%/d`) and `mini`, just an arrow from pace: `↓` slow
+The Rate limits chip has three modes: `compact` (`61.4% 4.3%/d`), `detailed`
+(`12.1/20.2W: 61.4% 4.3%/d`) and `mini`, just an arrow from pace: `↓` slow
 down when any window is more than 5 points ahead (yellow, orange past 10, red
 past 20 or at a limit), `↑` speed up when every window is more than 5 behind
 (green, brighter past 10, bold past 20), and nothing on pace. Clicking cycles
 the three. Its Usage condition hides the chip by pace in any mode: `unless on
 pace` (within ±5), `when > 10 ahead`, `when > 20 ahead`. A limit or an
-unreadable format always shows.
+unreadable format always shows. Usage pace `on` adds each window's pace after its %:
+`↓8` is 8 points ahead (slow down), `↑12` is 12 behind (speed up), nothing
+within ±5, on the same colour ladders (`4%↑66/22%↓8`, `61.4%↓8 4.3%/d`); mini
+then shows `↓8` instead of `↓`. Copilot's `4.3%/d` is the share left per
+remaining workday, not pace.
 
 Reopening `/footer` keeps the session's unsaved changes; a new session starts
 from the saved file. A saved mode is where each session starts; clicking a chip

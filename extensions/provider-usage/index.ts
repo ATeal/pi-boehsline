@@ -863,7 +863,7 @@ function startOfLocalDay(ms: number): number {
 }
 
 /**
- * Workday-aware Copilot window: "11.5/21W: 59% ↓3.9%/d". W counts Mon–Fri
+ * Workday-aware Copilot window: "11.5/21W: 59% 3.9%/d". W counts Mon–Fri
  * days in the cycle minus `oooDays` (workdays off still ahead), so the footer's
  * pace color ignores weekends. ↓ is the share left per workday from today on
  * (today counts whole), what to spend daily to land on the reset.
@@ -899,7 +899,7 @@ function formatCopilotQuota(
     return `${formatNumber(elapsed)}/${formatNumber(total)}W: ↻${when}`;
   }
   const allowanceDays = workdaysBetween(Math.max(start.getTime(), startOfLocalDay(now)), resetMs) - ooo;
-  const allowance = allowanceDays > 0 ? ` ↓${formatNumber((100 - percent) / allowanceDays)}%/d` : "";
+  const allowance = allowanceDays > 0 ? ` ${formatNumber((100 - percent) / allowanceDays)}%/d` : "";
   return `${formatNumber(elapsed)}/${formatNumber(total)}W: ${formatNumber(percent)}%${allowance}`;
 }
 
