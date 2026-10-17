@@ -41,6 +41,10 @@ ignores it). `/footer` keeps it when it saves:
 { "dirNames": { "~/Code/dotfiles": ".", "~/Documents/Notes": "" } }
 ```
 
+In a linked git worktree, the Worktree chip after it names the main repository
+(`eert-feature ⎇ eert`); it's hidden in a main checkout. It reads the `.git`
+file and `commondir` rather than running git, so a submodule doesn't count.
+
 Settings that belong to a chip sit indented under it: Git condition, Context
 threshold, Copilot OOO days, and a condition each for Provider, Model and
 Thinking. Set those to "unless default" to hide the chip while it matches the

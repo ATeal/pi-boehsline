@@ -2,7 +2,7 @@
  * Minimal footer/statusline for pi — a lean replacement for the pi-footer package.
  *
  * Renders a main line:
- *   dir branch* ⇣⇡ provider model thinking [bypass] ctx/window $cost [inline statuses] ⚡boot tk/s   session-name
+ *   dir [⎇ repo] branch* ⇣⇡ provider model thinking [bypass] ctx/window $cost [inline statuses] ⚡boot tk/s   session-name
  * plus an optional dim row of other extension statuses (from ctx.ui.setStatus).
  * The tk/s chip is the output rate: dim and live while a reply streams, then
  * the exact figure for the last reply (usage.output over first token → end).
@@ -51,7 +51,7 @@ import { spawn } from "node:child_process";
 import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { appendFile, readFile, readlink, realpath, writeFile, access, stat, lstat, constants } from "node:fs/promises";
 import { homedir, loadavg } from "node:os";
-import { basename, dirname, join } from "node:path";
+import { basename, dirname, join, resolve } from "node:path";
 
 import {
   VERSION as RUNNING_PI_VERSION,
@@ -114,6 +114,7 @@ const IDLE_COMPACT_STATUS = "idle-compact";
  */
 export const FOOTER_CHIPS = [
   { id: "dir", label: "Directory", example: "project", description: "Working directory: its name, or the full path. Click: flip for this session." },
+  { id: "worktree", label: "Worktree", example: "⎇ repo", description: "In a linked git worktree, ⎇ and the main repository's name; hidden in a main checkout." },
   { id: "git", label: "Git", example: "main* ⇡", description: "Branch; full mode adds * when dirty and ⇡/⇣ ahead/behind. Click: branch prefills git status; arrows prefill push/pull (⇧ for force/rebase)." },
   { id: "provider", label: "Provider", example: "gh", description: "Provider, short (gh = GitHub Copilot, o = OpenAI Codex). Click: next model." },
   { id: "model", label: "Model", example: "opus", description: "Model, short (opus, sonn). Click: next model." },
@@ -305,7 +306,8 @@ function underline(text: string): string {
 /**
  * footer.json: `{ "hidden": ["boot"], "modes": { "context": "percent" },
  * "order": ["git", "dir", ...] }`, every key optional. New chips start shown,
- * in their default mode, after the ones the file orders.
+ * in their default mode, right after the chip they follow by default (or at
+ * the end when that one is missing too).
  */
 export function footerConfigPath(): string {
   return join(agentDir(), "footer.json");
@@ -329,7 +331,15 @@ export function readFooterConfig(): FooterConfig {
   }
   const saved = Array.isArray(parsed.order) ? parsed.order.filter(known).filter(isLineChip) : [];
   const order = [...new Set(saved)];
-  for (const id of DEFAULT_CHIP_ORDER) if (!order.includes(id)) order.push(id);
+  // A chip the file doesn't know (added since it was saved) goes after its
+  // default predecessor, so a new chip sits where it belongs rather than last.
+  DEFAULT_CHIP_ORDER.forEach((id, i) => {
+    if (order.includes(id)) return;
+    const after = i > 0 ? order.indexOf(DEFAULT_CHIP_ORDER[i - 1]!) : -1;
+    if (i === 0) order.unshift(id);
+    else if (after === -1) order.push(id);
+    else order.splice(after + 1, 0, id);
+  });
   const config: FooterConfig = { hidden, modes, order };
   // Unknown values fall back to the default, which is left out.
   for (const row of CONDITION_ROWS) {
@@ -1241,6 +1251,45 @@ export function dirLabel(cwd: string, fullPath: boolean, dirNames: Record<string
   return basename(cwd);
 }
 
+const worktreeRepoCache = new Map<string, string | undefined>();
+
+/**
+ * The main repository's name when `cwd` is inside a linked git worktree, else
+ * undefined. File reads only, no git process: a worktree's `.git` is a file
+ * pointing at `<common>/worktrees/<name>`, whose `commondir` leads back to the
+ * shared git directory (`repo/.git`, or a bare `repo.git`). Submodules have a
+ * `.git` file too but no `commondir`, so they don't count. Cached per cwd.
+ */
+export function worktreeRepo(cwd: string): string | undefined {
+  if (worktreeRepoCache.has(cwd)) return worktreeRepoCache.get(cwd);
+  let repo: string | undefined;
+  for (let dir = cwd; ; dir = dirname(dir)) {
+    const dotGit = join(dir, ".git");
+    let text: string | undefined;
+    try {
+      text = readFileSync(dotGit, "utf8");
+    } catch (error) {
+      // EISDIR: a main checkout. ENOENT: keep walking up.
+      if ((error as NodeJS.ErrnoException).code !== "ENOENT") break;
+    }
+    if (text !== undefined) {
+      const gitDir = text.match(/^gitdir:\s*(.+?)\s*$/m)?.[1];
+      if (!gitDir) break;
+      const absGitDir = resolve(dir, gitDir);
+      try {
+        const common = resolve(absGitDir, readFileSync(join(absGitDir, "commondir"), "utf8").trim());
+        repo = basename(common) === ".git" ? basename(dirname(common)) : basename(common).replace(/\.git$/, "");
+      } catch {
+        // No commondir: a submodule, not a worktree.
+      }
+      break;
+    }
+    if (dirname(dir) === dir) break;
+  }
+  worktreeRepoCache.set(cwd, repo);
+  return repo;
+}
+
 /** When this process started, for telling its registry file from a dead predecessor's. */
 const PROCESS_STARTED_AT = Date.now() - process.uptime() * 1000;
 
@@ -1893,7 +1942,7 @@ export default function footerExtension(pi: ExtensionAPI): void {
     | "gitPull";
   /** Clickable zones: chip ids, plus the git chip's three segments. */
   type FooterZoneKey =
-    | Exclude<FooterChipId, "git" | "idle" | "statuses">
+    | Exclude<FooterChipId, "git" | "idle" | "worktree" | "statuses">
     | "gitBranch"
     | "gitBehind"
     | "gitAhead";
@@ -2112,6 +2161,7 @@ export default function footerExtension(pi: ExtensionAPI): void {
             );
           const chips: Array<readonly [Exclude<FooterChipId, "name" | "statuses">, string]> = [
             ["dir", color(BLUE, dirLabel(ctx.cwd, showFullPath, footerConfig.dirNames))],
+            ["worktree", ((repo) => (repo ? color(BLUE, `⎇ ${repo}`) : ""))(worktreeRepo(ctx.cwd))],
             ["git", gitChip.text],
             [
               "provider",
@@ -2217,6 +2267,7 @@ export default function footerExtension(pi: ExtensionAPI): void {
             const text = FOOTER_CHIPS.find((chip) => chip.id === id)?.example ?? "";
             switch (id) {
               case "dir":
+              case "worktree":
                 return color(BLUE, text);
               case "git":
                 return `${color(MAGENTA, "main*")} ${color(CYAN, "⇡")}`;
@@ -2327,8 +2378,8 @@ export default function footerExtension(pi: ExtensionAPI): void {
               // Only one provider status normally renders. If extensions expose
               // several, make their contiguous run one shared toggle target.
               zones.usage = [zones.usage?.[0] ?? cursor, span[1]];
-            } else if (id !== "idle") {
-              // The idle-compaction chip is glance-only; every other chip is its own zone.
+            } else if (id !== "idle" && id !== "worktree") {
+              // The idle-compaction and worktree chips are glance-only; every other chip is its own zone.
               zones[id] = span;
             }
             current += part;

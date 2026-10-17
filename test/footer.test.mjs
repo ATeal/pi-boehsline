@@ -9,7 +9,7 @@
  */
 
 import assert from "node:assert/strict";
-import { existsSync, mkdtempSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import { existsSync, mkdtempSync, mkdirSync, readFileSync, realpathSync, writeFileSync } from "node:fs";
 import { homedir, tmpdir } from "node:os";
 import path from "node:path";
 import test, { afterEach } from "node:test";
@@ -39,6 +39,7 @@ import footer, {
   minutesUntilClock,
   readFooterConfig,
   writeFooterConfig,
+  worktreeRepo,
 } from "../extensions/footer/index.ts";
 
 const PORCELAIN = "A  staged.ts\n M edited.ts\n?? new.ts\n";
@@ -849,6 +850,48 @@ test("Copilot OOO days read from footer.json and expire with the month", async (
     assert.equal(readFooterConfig().copilotOoo, undefined, "set in an earlier cycle");
     writeFileSync(path.join(dir, "footer.json"), JSON.stringify({ copilotOoo: "99" }));
     assert.equal(readFooterConfig().copilotOoo, undefined, "out of range");
+  });
+});
+
+test("the worktree chip names the main repo in a linked worktree, and nothing elsewhere", async () => {
+  const { execFileSync } = await import("node:child_process");
+  const root = realpathSync(mkdtempSync(path.join(tmpdir(), "footer-wt-")));
+  const git = (cwd, ...args) => execFileSync("git", args, { cwd, stdio: "ignore", env: { ...process.env, GIT_CONFIG_GLOBAL: "/dev/null" } });
+
+  // A real worktree, and a folder inside it.
+  const main = path.join(root, "eert");
+  mkdirSync(main);
+  git(main, "init", "-q");
+  git(main, "-c", "user.name=t", "-c", "user.email=t@t", "commit", "-q", "--allow-empty", "-m", "init");
+  git(main, "worktree", "add", "-q", path.join(root, "eert-feature"), "-b", "feature");
+  assert.equal(worktreeRepo(path.join(root, "eert-feature")), "eert");
+  mkdirSync(path.join(root, "eert-feature", "docs"));
+  assert.equal(worktreeRepo(path.join(root, "eert-feature", "docs")), "eert", "from a subfolder too");
+  assert.equal(worktreeRepo(main), undefined, "the main checkout");
+  assert.equal(worktreeRepo(root), undefined, "not a repo");
+
+  // A bare repo's worktree, with a relative gitdir.
+  mkdirSync(path.join(root, "app.git", "worktrees", "wt"), { recursive: true });
+  writeFileSync(path.join(root, "app.git", "worktrees", "wt", "commondir"), "../..\n");
+  mkdirSync(path.join(root, "wt"));
+  writeFileSync(path.join(root, "wt", ".git"), "gitdir: ../app.git/worktrees/wt\n");
+  assert.equal(worktreeRepo(path.join(root, "wt")), "app");
+
+  // A submodule's .git file points into modules/, with no commondir.
+  mkdirSync(path.join(main, ".git", "modules", "lib"), { recursive: true });
+  mkdirSync(path.join(main, "lib"));
+  writeFileSync(path.join(main, "lib", ".git"), "gitdir: ../.git/modules/lib\n");
+  assert.equal(worktreeRepo(path.join(main, "lib")), undefined, "a submodule is not a worktree");
+});
+
+test("a chip added since footer.json was saved lands after its default predecessor", () => {
+  withAgentDir((dir) => {
+    // An order saved before the worktree chip existed, with dir moved last.
+    const saved = DEFAULT_CHIP_ORDER.filter((id) => id !== "worktree" && id !== "dir").concat("dir");
+    writeFileSync(path.join(dir, "footer.json"), JSON.stringify({ order: saved }));
+    const order = readFooterConfig().order;
+    assert.deepEqual(order.slice(-2), ["dir", "worktree"]);
+    assert.equal(order.length, DEFAULT_CHIP_ORDER.length);
   });
 });
 
@@ -1837,8 +1880,10 @@ test("footer.json: unknown ids, modes and broken files fall back to defaults; wr
     const config = readFooterConfig();
     assert.deepEqual([...config.hidden], ["rate"]);
     assert.deepEqual(config.modes, { context: "percent" }, "unknown modes dropped");
-    // Saved order first (deduped, line chips only), then the rest in default order.
-    assert.deepEqual(config.order.slice(0, 3), ["git", "dir", "provider"]);
+    // Saved order (deduped, line chips only); the rest each go after their
+    // default predecessor: worktree after dir, provider after git.
+    assert.deepEqual(config.order.slice(0, 2), ["git", "provider"]);
+    assert.deepEqual(config.order.slice(-2), ["dir", "worktree"]);
     assert.equal(config.order.length, DEFAULT_CHIP_ORDER.length);
 
     writeFooterConfig({ hidden: new Set(["rate", "dir"]), modes: { context: "tokens", idle: "countdown" }, order: [...DEFAULT_CHIP_ORDER] });
@@ -1945,7 +1990,7 @@ test("unsaved /footer changes survive reopening, and a new session starts from t
   await withAgentDir(async (dir) => {
     const ui = await mount();
     let list = await openChecklist(ui);
-    list.handleInput("\x1b[B"); // Git
+    selectRow(list, /^→ Git\b/, "\x1b[B");
     list.handleInput("\r"); // full → branch
     list.handleInput("\x1b");
     assert.match(ui.plain()[0], /^dotfiles master gh /);
@@ -1971,7 +2016,7 @@ test("/footer previews in the real footer: the selected chip blinks, the rest go
     assert.match(footerLine(), /\x1b\[5m\x1b\[4m\x1b\[[0-9;]*mdotfiles/);
     assert.match(footerLine(), /\x1b\[2m\x1B\[2mopus\x1B\[22m\x1b\[22m/);
 
-    list.handleInput("\x1b[B"); // down to Git
+    selectRow(list, /^→ Git\b/, "\x1b[B"); // down to Git (past Worktree)
     assert.match(footerLine(), /\x1b\[5m.*master/);
     assert.match(footerLine(), /^\x1b\[2m\x1B\[2mdotfiles\x1B\[22m/);
 
@@ -2067,21 +2112,21 @@ test("/footer reorders with J/K or Shift+arrows, j/k navigate, and the name row 
     const file = path.join(dir, "footer.json");
     const rows = () => list.render(140).map(strip).filter((line) => /shown|hidden|name|tokens|full|clock|compact|number/.test(line));
 
-    list.handleInput("J"); // Directory down past Git
+    list.handleInput("J");
+    list.handleInput("J"); // Directory down past Worktree (empty here) and Git
     assert.match(strip(ui.raw()[0]), /^master\* dotfiles gh /, "the footer follows");
     assert.equal(existsSync(file), false, "moves are session only too");
-    assert.match(rows()[1], /→ Directory/, "the moved chip stays selected");
+    assert.match(rows()[2], /→ Directory/, "the moved chip stays selected");
 
-    list.handleInput("\x1b[1;2A"); // Shift+Up: back to the top
+    list.handleInput("\x1b[1;2A");
+    list.handleInput("\x1b[1;2A"); // Shift+Up twice: back to the top
     assert.match(strip(ui.raw()[0]), /^dotfiles master\* gh /);
     assert.doesNotMatch(list.render(140).map(strip).at(-1), /Unsaved/, "back to the saved order");
 
     list.handleInput("K"); // already first: no-op
     assert.match(strip(ui.raw()[0]), /^dotfiles master\* /);
 
-    list.handleInput("j");
-    list.handleInput("j");
-    list.handleInput("j"); // Directory → Git → Git condition → Provider
+    for (let i = 0; i < 4; i += 1) list.handleInput("j"); // Directory → Worktree → Git → Git condition → Provider
     assert.match(rows().find((line) => line.startsWith("→")), /Provider/, "j moves the selection down");
     list.handleInput("k");
     list.handleInput("k");
@@ -2140,8 +2185,7 @@ test("/footer's Git condition row sits under Git and saves with Alt+S", async ()
     assert.match(shown[at + 1], /Git condition\s+always/);
     // Indented under its chip: a setting of Git, not a chip of its own.
     assert.match(shown[at + 1], /^ {4}Git condition/);
-    list.handleInput("j");
-    list.handleInput("j"); // Directory → Git → Git condition
+    selectRow(list, /^→\s+Git condition/);
     assert.match(ui.raw()[0], /\x1b\[5m.*master/, "previews the git chip");
     list.handleInput("\r"); // always → unless clean default
     list.handleInput("\x1bs");
