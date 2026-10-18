@@ -266,6 +266,8 @@ async function mount(overrides = {}) {
     ctx,
     /** Run a registered slash command with the same ctx pi would pass. */
     run: (name, args = "") => pi.commands[name].handler(args, ctx),
+    /** A command's argument completions for the typed prefix. */
+    complete: (name, prefix) => pi.commands[name].getArgumentCompletions?.(prefix),
     /** Fire the input event, as pi does when something is submitted. */
     input: (event = { source: "interactive", text: "hi" }) => pi.handlers.input(event, ctx),
     startSession: (event = {}) => pi.handlers.session_start(event, ctx),
@@ -540,6 +542,22 @@ test("a git status that times out keeps the last state instead of dropping the d
   } finally {
     Date.now = realNow;
   }
+});
+
+test("a ! command expedites git: the chip catches up within ~0.5s instead of 5s", async (t) => {
+  let porcelain = "";
+  const ui = await mount({ execHook: (args) => (args[0] === "status" ? { stdout: porcelain } : {}) });
+  assert.match((await ui.settled())[0], /^dotfiles master gh /, "clean");
+  porcelain = " M README.md\n"; // `!echo >> README.md` changed the tree
+  await new Promise((resolve) => setTimeout(resolve, 600));
+  assert.match((await ui.settled())[0], /^dotfiles master gh /, "without a ! command, the 5s cache holds");
+
+  const renders = ui.renderCount();
+  assert.equal(await ui.fire("user_bash", { type: "user_bash", command: "echo >> README.md", excludeFromContext: false, cwd: "/x" }), undefined, "never handles the command");
+  await new Promise((resolve) => setTimeout(resolve, 600));
+  assert.ok(ui.renderCount() > renders, "the ticker repaints while expedited");
+  assert.match((await ui.settled())[0], /^dotfiles master\* gh /, "dirty right after the command");
+  await ui.fire("session_shutdown", {}); // stops the ticker
 });
 
 test("non-repo directories drop the git segments", async () => {
@@ -2420,6 +2438,10 @@ test("/footer minimal|full|saved switch this session's view without touching foo
 
     await ui.run("footer", "saved");
     assert.equal(ui.plain()[0], main);
+
+    assert.deepEqual(ui.complete("footer", "m").map((item) => item.value), ["minimal"]);
+    assert.deepEqual(ui.complete("footer", "o").map((item) => item.value), ["on", "off"]);
+    assert.equal(ui.complete("footer", "minimal"), null, "an exact match opens no menu, so one Enter runs it");
   });
 });
 

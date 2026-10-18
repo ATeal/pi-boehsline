@@ -16,7 +16,9 @@ full/branch, Context tokens/percent, Idle compaction clock/countdown, Cost and
 Rate limits compact/detailed, Token rate number/with TTFT, Session name
 border/footer). A Git condition
 row under Git can hide the branch on a clean default branch (origin/HEAD's,
-else main or master) with nothing to push or pull. A Context
+else main or master) with nothing to push or pull. Git status is cached for
+5s; after a `!` command it's re-checked every 0.5s for 10s, so `!git switch`
+or `!git commit` shows within about a second. A Context
 threshold row under Context hides that chip until the context passes 50k,
 100k or 200k tokens, or 25%, 50% or 75% of the window. `j`/`k` move the
 selection; `J`/`K` or Shift+↑/↓ move the chip itself (the session name and the

@@ -74,6 +74,14 @@ import {
 } from "@earendil-works/pi-tui";
 
 const GIT_TTL_MS = 5_000;
+/**
+ * After a `!` command (which may run git), re-check this often for this long.
+ * pi has no event for when a user command ends, and taking over its execution
+ * (user_bash `operations`) would stop other extensions' user_bash handlers, so
+ * the footer polls briefly instead.
+ */
+export const GIT_EXPEDITE_TTL_MS = 500;
+export const GIT_EXPEDITE_WINDOW_MS = 10_000;
 // A busy machine can take seconds; a timeout keeps the last state rather than
 // blanking it, so this only bounds how stale the chip can get.
 const GIT_TIMEOUT_MS = 3_000;
@@ -945,6 +953,8 @@ class GitStatusCache {
   private key = "";
   private fetchedAt = 0;
   private inFlight = false;
+  /** Until this time, refresh every GIT_EXPEDITE_TTL_MS (a `!` command just ran). */
+  private expeditedUntil = 0;
   private readonly pi: ExtensionAPI;
 
   constructor(pi: ExtensionAPI) {
@@ -957,10 +967,16 @@ class GitStatusCache {
       this.state = EMPTY_GIT;
       this.fetchedAt = 0;
     }
-    if (!this.inFlight && Date.now() - this.fetchedAt >= GIT_TTL_MS) {
+    const ttl = Date.now() < this.expeditedUntil ? GIT_EXPEDITE_TTL_MS : GIT_TTL_MS;
+    if (!this.inFlight && Date.now() - this.fetchedAt >= ttl) {
       void this.refresh(cwd, requestRender);
     }
     return this.state;
+  }
+
+  /** Re-check git often for a while: a `!` command may have changed it. */
+  expedite(windowMs = GIT_EXPEDITE_WINDOW_MS): void {
+    this.expeditedUntil = Date.now() + windowMs;
   }
 
   private async refresh(cwd: string, requestRender: () => void): Promise<void> {
@@ -3143,7 +3159,11 @@ export default function footerExtension(pi: ExtensionAPI): void {
     description: "Choose which footer chips show; /footer minimal|full|saved switches this session's view, /footer on|off toggles it",
     getArgumentCompletions: (prefix: string) => {
       const items = [...FOOTER_VIEWS, "on", "off"].map((value) => ({ value, label: value }));
-      const filtered = items.filter((item) => item.value.startsWith(prefix.trim().toLowerCase()));
+      const typed = prefix.trim().toLowerCase();
+      // An exact match gets no menu: with one open, Enter only accepts the
+      // completion, so `/footer minimal` + Enter would need a second Enter.
+      if (items.some((item) => item.value === typed)) return null;
+      const filtered = items.filter((item) => item.value.startsWith(typed));
       return filtered.length > 0 ? filtered : null;
     },
     handler: async (args, ctx) => {
@@ -3520,8 +3540,28 @@ export default function footerExtension(pi: ExtensionAPI): void {
     chipDefaults = readChipDefaults(ctx.cwd);
     apply(ctx);
   });
+  // `!git switch`, `!git commit`, `!echo >> file`: show the result as soon as
+  // the command finishes, not up to 5s later. Polls for a few seconds (renders
+  // drive the git cache) and never handles the command itself.
+  let gitTicker: ReturnType<typeof setInterval> | undefined;
+  const stopGitTicker = () => {
+    if (gitTicker !== undefined) clearInterval(gitTicker);
+    gitTicker = undefined;
+  };
+  pi.on("user_bash", async () => {
+    git.expedite();
+    stopGitTicker();
+    const until = Date.now() + GIT_EXPEDITE_WINDOW_MS;
+    gitTicker = setInterval(() => {
+      if (Date.now() >= until) stopGitTicker();
+      else repaint?.();
+    }, GIT_EXPEDITE_TTL_MS);
+    gitTicker.unref?.();
+    return undefined;
+  });
   pi.on("session_shutdown", async (_event, ctx) => {
     stopWaiting();
+    stopGitTicker();
     if (updateTimer !== undefined) clearInterval(updateTimer);
     updateTimer = undefined;
     if (ctx.hasUI) {
