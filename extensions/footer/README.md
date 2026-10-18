@@ -114,6 +114,15 @@ the ones the file orders. `/footer off` and `/footer on` switch the whole
 footer for this session. Click zones are keyed by chip id, so hiding or moving
 a chip never breaks the others' clicks.
 
+`/footer minimal`, `/footer full` and `/footer saved` switch this session's
+view, and so does the View row at the top of `/footer`. A view is never saved.
+Minimal keeps dir, branch, provider/model, thinking, bypass, context, usage
+(mini) and the session name, and only those the saved layout shows. Full shows
+every chip in its most detailed mode, ignores the conditions and flagship
+hiding, and shows the $ estimate even on subscriptions. Red ⚠ alarms (such
+as Claude extra-usage billing) show in every view, even with the statuses row
+hidden.
+
 It also watches
 pi's on-disk version: when an install lands while instances are running — via
 `pi update`, `npm i -g`, anything — each running footer shows a green, right-aligned

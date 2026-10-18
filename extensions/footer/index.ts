@@ -584,6 +584,49 @@ export function flagshipModel(provider: string | undefined, model: string | unde
   return !!pattern && !!model && pattern.test(model);
 }
 
+/**
+ * Session-only views over the saved layout (footer.json is never touched):
+ * minimal keeps the essentials, full shows everything in detail. "saved" is
+ * the layout itself.
+ */
+export const FOOTER_VIEWS = ["saved", "minimal", "full"] as const;
+export type FooterView = (typeof FOOTER_VIEWS)[number];
+
+export function isFooterView(value: string): value is FooterView {
+  return (FOOTER_VIEWS as readonly string[]).includes(value);
+}
+
+/** What minimal keeps (when the saved layout shows it): where you are, what's answering, and how full. */
+const MINIMAL_CHIPS: ReadonlySet<FooterChipId> = new Set<FooterChipId>([
+  "dir", "git", "provider", "model", "thinking", "bypass", "context", "usage", "name",
+]);
+
+/** The config a view renders with. Minimal narrows the saved layout; full drops
+ *  every hidden chip and condition and picks each chip's most detailed mode. */
+export function viewConfig(config: FooterConfig, view: FooterView): FooterConfig {
+  if (view === "saved") return config;
+  if (view === "minimal") {
+    return {
+      ...config,
+      hidden: new Set(FOOTER_CHIPS.map((chip) => chip.id).filter((id) => config.hidden.has(id) || !MINIMAL_CHIPS.has(id))),
+      modes: { ...config.modes, git: "branch", usage: "mini" },
+    };
+  }
+  const { gitWhen: _g, providerWhen: _p, modelWhen: _m, thinkingWhen: _t, contextMin: _c, usageWhen: _u, rateWhen: _r, ...rest } = config;
+  return {
+    ...rest,
+    hidden: new Set(),
+    modes: { ...config.modes, git: "full", cost: "detailed", usage: "detailed", rate: "with TTFT" },
+    usagePace: "on",
+  };
+}
+
+/** Statuses that show even where the statuses row is hidden: red "\u26a0" alarms
+ *  (Claude extra-usage billing and the like) must never be filtered away. */
+export function alarmStatuses(values: readonly string[]): string[] {
+  return values.filter((value) => value.includes("\u26a0"));
+}
+
 /** Whether a provider/model/thinking chip is hidden by its "unless default" condition. */
 export function defaultChipHidden(
   chip: "provider" | "model" | "thinking",
@@ -2110,6 +2153,16 @@ export default function footerExtension(pi: ExtensionAPI): void {
   ];
   /** /footer's saved choices (hidden chips, start modes, order), from footer.json. */
   let footerConfig = readFooterConfig();
+  /** /footer minimal|full|saved: this session's view over footerConfig, never saved. */
+  let view: FooterView = "saved";
+  /** What the footer renders: the saved layout through the session's view. */
+  const shown = (): FooterConfig => viewConfig(footerConfig, view);
+  /** Switch the view; click toggles restart in its modes, like a fresh session. */
+  const setView = (next: FooterView): void => {
+    view = next;
+    applySavedModes();
+    repaint?.();
+  };
   /** /footer changed footerConfig in this session and Alt+S has not saved it. */
   let sessionEdited = false;
   /** The idle chip is showing a countdown, so the update tick repaints it. */
@@ -2119,11 +2172,11 @@ export default function footerExtension(pi: ExtensionAPI): void {
    * still flips them, for this session only.
    */
   function applySavedModes(): void {
-    showFullPath = chipMode(footerConfig, "dir") === "full path";
-    contextPercent = chipMode(footerConfig, "context") === "percent";
-    compactCostUsage = chipMode(footerConfig, "cost") !== "detailed";
-    usageMode = chipMode(footerConfig, "usage") ?? "compact";
-    detailedRate = chipMode(footerConfig, "rate") === "with TTFT";
+    showFullPath = chipMode(shown(), "dir") === "full path";
+    contextPercent = chipMode(shown(), "context") === "percent";
+    compactCostUsage = chipMode(shown(), "cost") !== "detailed";
+    usageMode = chipMode(shown(), "usage") ?? "compact";
+    detailedRate = chipMode(shown(), "rate") === "with TTFT";
   }
   /** Each chip's text at the last render, hidden ones too, for /footer's samples. */
   let chipSamples = new Map<FooterChipId, string>();
@@ -2268,8 +2321,8 @@ export default function footerExtension(pi: ExtensionAPI): void {
 
   /** Whether bypass marks the name or the chip, by the Bypass row's mode (hidden: neither). */
   const bypassMarks = (where: "name" | "chip"): boolean => {
-    if (!bypassed || footerConfig.hidden.has("bypass")) return false;
-    const mode = chipMode(footerConfig, "bypass");
+    if (!bypassed || shown().hidden.has("bypass")) return false;
+    const mode = chipMode(shown(), "bypass");
     return mode === "both" || mode === where;
   };
   /**
@@ -2282,14 +2335,14 @@ export default function footerExtension(pi: ExtensionAPI): void {
     if (!bypassMarks("name")) return false;
     const nameOnScreen =
       enabled &&
-      !footerConfig.hidden.has("name") &&
+      !shown().hidden.has("name") &&
       !!(pi.getSessionName() || peer.read(requestRender)) &&
       (nameInFooter() || borderNamePainted);
     return !nameOnScreen;
   };
 
   const nameShownAs = (mode: string): boolean =>
-    enabled && !footerConfig.hidden.has("name") && chipMode(footerConfig, "name") === mode;
+    enabled && !shown().hidden.has("name") && chipMode(shown(), "name") === mode;
   // Border mode falls back to the footer whenever the border didn't draw it.
   const nameInFooter = () => nameShownAs("footer") || (nameShownAs("border") && !borderNamePainted);
 
@@ -2321,7 +2374,7 @@ export default function footerExtension(pi: ExtensionAPI): void {
        * editor's render, so it falls back to no chips and warns once.
        */
       const chipsFor = (where: "top border" | "bottom border"): FooterPart[] => {
-        if (!footerConfig.placement?.startsWith(where)) return [];
+        if (!shown().placement?.startsWith(where)) return [];
         try {
           return borderParts?.() ?? [];
         } catch (error) {
@@ -2376,7 +2429,7 @@ export default function footerExtension(pi: ExtensionAPI): void {
         // queues its own clearing, so a throw before then can't leave it set.
         markNamePainted(!!name);
         const parts = chipsFor("top border");
-        const align = footerConfig.placement === "top border left" ? "left" : "right";
+        const align = shown().placement === "top border left" ? "left" : "right";
         const layout = parts.length ? topBorderLayout(name, parts, hidden, width, borderPaint, "↑", align) : undefined;
         topClickRow = {};
         if (layout) {
@@ -2407,7 +2460,7 @@ export default function footerExtension(pi: ExtensionAPI): void {
         const piBottom = bottomTarget.renderBottomBorder.bind(editor);
         bottomTarget.renderBottomBorder = (width, hidden) => {
           const parts = chipsFor("bottom border");
-          const align = footerConfig.placement === "bottom border left" ? "left" : "right";
+          const align = shown().placement === "bottom border left" ? "left" : "right";
           const layout = parts.length ? topBorderLayout("", parts, hidden, width, borderPaint, "↓", align) : undefined;
           bottomClickRow = {};
           bottomLine = undefined;
@@ -2483,11 +2536,11 @@ export default function footerExtension(pi: ExtensionAPI): void {
         const branch = footerData.getGitBranch();
         // Git "branch" mode drops the dirty marker and the arrows (and their clicks);
         // the Git condition can hide the chip on a clean default branch.
-        const gitChip = gitChipHidden(footerConfig.gitWhen, branch, gitState)
+        const gitChip = gitChipHidden(shown().gitWhen, branch, gitState)
           ? EMPTY_GIT_CHIP
           : formatGit(
               branch,
-              chipMode(footerConfig, "git") === "branch" ? { ...gitState, dirty: false, ahead: false, behind: false } : gitState,
+              chipMode(shown(), "git") === "branch" ? { ...gitState, dirty: false, ahead: false, behind: false } : gitState,
             );
         const statuses = footerData.getExtensionStatuses();
         const usageValue = usageChip(provider);
@@ -2506,7 +2559,7 @@ export default function footerExtension(pi: ExtensionAPI): void {
           idleCountdownShown = false;
           if (!status) return "";
           const minutes =
-            chipMode(footerConfig, "idle") === "countdown" ? minutesUntilClock(status, new Date()) : undefined;
+            chipMode(shown(), "idle") === "countdown" ? minutesUntilClock(status, new Date()) : undefined;
           if (minutes === undefined) return theme.fg("dim", status);
           idleCountdownShown = true;
           return theme.fg("dim", `⏲ ${minutes}m`);
@@ -2514,12 +2567,12 @@ export default function footerExtension(pi: ExtensionAPI): void {
         const hideAsDefault = (chip: "provider" | "model" | "thinking") =>
           defaultChipHidden(
             chip,
-            footerConfig[`${chip}When`],
+            shown()[`${chip}When`],
             { provider: ctx.model?.provider, model: ctx.model?.id, thinking: pi.getThinkingLevel() },
             chipDefaults,
           );
         const chips: Array<readonly [Exclude<FooterChipId, "name" | "statuses">, string]> = [
-          ["dir", color(BLUE, dirLabel(ctx.cwd, showFullPath, footerConfig.dirNames))],
+          ["dir", color(BLUE, dirLabel(ctx.cwd, showFullPath, shown().dirNames))],
           ["worktree", ((repo) => (repo ? color(BLUE, `⎇ ${repo}`) : ""))(worktreeRepo(ctx.cwd))],
           ["git", gitChip.text],
           [
@@ -2528,7 +2581,7 @@ export default function footerExtension(pi: ExtensionAPI): void {
           ],
           [
             "model",
-            hideAsDefault("model") || flagshipModel(provider, ctx.model?.id)
+            hideAsDefault("model") || (view !== "full" && flagshipModel(provider, ctx.model?.id))
               ? ""
               : color(BRIGHT_YELLOW, `${routePrefix(provider, ctx.model?.id)}${shortModel(ctx.model?.id, provider)}`),
           ],
@@ -2544,7 +2597,7 @@ export default function footerExtension(pi: ExtensionAPI): void {
           // /footer threshold.
           [
             "context",
-            !contextAboveThreshold(footerConfig.contextMin, usage?.tokens, usage?.contextWindow)
+            !contextAboveThreshold(shown().contextMin, usage?.tokens, usage?.contextWindow)
               ? ""
               : contextPercent
               ? color(
@@ -2561,7 +2614,7 @@ export default function footerExtension(pi: ExtensionAPI): void {
             "cost",
             usageValue
               ? renderBudgetUsage(usageValue, budgetResetMs(provider), compactCostUsage)
-              : hideSessionCost(provider, ctx)
+              : view !== "full" && hideSessionCost(provider, ctx)
                 ? ""
                 : color(GREEN, formatCost(sessionCost(ctx.sessionManager.getBranch()))),
           ],
@@ -2569,8 +2622,8 @@ export default function footerExtension(pi: ExtensionAPI): void {
             const raw = statuses.get(key);
             const value = raw ? stripAllowanceArrow(raw) : raw;
             // Per-window coloring: a red 5h shouldn't paint the week red too.
-            if (!value || usageChipHidden(footerConfig.usageWhen, usagePace(value))) return ["usage", ""] as const;
-            const showPace = footerConfig.usagePace === "on";
+            if (!value || usageChipHidden(shown().usageWhen, usagePace(value))) return ["usage", ""] as const;
+            const showPace = shown().usagePace === "on";
             const mini = usageMode === "mini" ? renderMiniUsage(value, showPace) : undefined;
             return ["usage", mini ?? renderWindowUsage(value, usageMode !== "detailed", showPace)] as const;
           }),
@@ -2580,7 +2633,7 @@ export default function footerExtension(pi: ExtensionAPI): void {
           // (faint) while streaming, and the exact figure once it ends.
           [
             "rate",
-            !rateChipShown(footerConfig.rateWhen, {
+            !rateChipShown(shown().rateWhen, {
               active: waitingForToken || streaming,
               elapsedMs: turnStartMs === undefined ? undefined : Date.now() - turnStartMs,
               lastTurnMs,
@@ -2602,7 +2655,7 @@ export default function footerExtension(pi: ExtensionAPI): void {
           ],
         ];
         // /footer's order: a stable sort, so the rate-limit slots stay together.
-        const rank = (id: FooterLineChipId) => footerConfig.order.indexOf(id);
+        const rank = (id: FooterLineChipId) => shown().order.indexOf(id);
         chips.sort(([a], [b]) => rank(a) - rank(b));
         // /footer samples every chip, hidden ones included; the walk below
         // then skips the hidden ones.
@@ -2661,7 +2714,7 @@ export default function footerExtension(pi: ExtensionAPI): void {
           const isExample = !raw && previewEmpty && id === previewChip && !examplePlaced;
           if (isExample) examplePlaced = true;
           const text = isExample ? placeholder(id) : raw;
-          if (!text || (footerConfig.hidden.has(id) && !previewChip)) continue;
+          if (!text || (shown().hidden.has(id) && !previewChip)) continue;
           const part = previewStyle(id, text);
           const partWidth = visibleWidth(part);
           const span: ClickZone = [0, partWidth];
@@ -2686,7 +2739,7 @@ export default function footerExtension(pi: ExtensionAPI): void {
         }
         return { parts, samples, statuses, previewStyle, placeholder };
       };
-      borderParts = () => (enabled && footerConfig.placement?.includes(" border") ? collect().parts : []);
+      borderParts = () => (enabled && shown().placement?.includes(" border") ? collect().parts : []);
 
       return {
         dispose: () => {
@@ -2814,7 +2867,12 @@ export default function footerExtension(pi: ExtensionAPI): void {
             samples.set("statuses", extra.join(" "));
             const statusLine = theme.fg("dim", extra.join(" "));
             if (previewChip) lines.push(truncateToWidth(previewStyle("statuses", statusLine), width, "…"));
-            else if (!footerConfig.hidden.has("statuses")) lines.push(truncateToWidth(statusLine, width, "…"));
+            else if (!shown().hidden.has("statuses")) lines.push(truncateToWidth(statusLine, width, "…"));
+            else {
+              // Hidden (saved, or by the minimal view): ⚠ alarms still show, undimmed.
+              const alarms = alarmStatuses(extra);
+              if (alarms.length > 0) lines.push(truncateToWidth(alarms.join(" "), width, "…"));
+            }
           } else if (previewChip === "statuses") {
             lines.push(truncateToWidth(previewStyle("statuses", placeholder("statuses")), width, "…"));
           }
@@ -3082,7 +3140,12 @@ export default function footerExtension(pi: ExtensionAPI): void {
   });
 
   pi.registerCommand("footer", {
-    description: "Choose which footer chips show (/footer on|off toggles the whole footer)",
+    description: "Choose which footer chips show; /footer minimal|full|saved switches this session's view, /footer on|off toggles it",
+    getArgumentCompletions: (prefix: string) => {
+      const items = [...FOOTER_VIEWS, "on", "off"].map((value) => ({ value, label: value }));
+      const filtered = items.filter((item) => item.value.startsWith(prefix.trim().toLowerCase()));
+      return filtered.length > 0 ? filtered : null;
+    },
     handler: async (args, ctx) => {
       const argument = args.trim().toLowerCase();
       if (argument === "on" || argument === "off" || argument === "toggle") {
@@ -3091,8 +3154,16 @@ export default function footerExtension(pi: ExtensionAPI): void {
         ctx.ui.notify(enabled ? "footer enabled" : "footer disabled", "info");
         return;
       }
+      if (isFooterView(argument)) {
+        setView(argument);
+        ctx.ui.notify(
+          argument === "saved" ? "Footer: saved layout" : `Footer: ${argument} view for this session \u00b7 /footer saved to return`,
+          "info",
+        );
+        return;
+      }
       if (argument) {
-        ctx.ui.notify("Usage: /footer (choose chips), /footer on, /footer off", "warning");
+        ctx.ui.notify("Usage: /footer (choose chips), /footer minimal|full|saved, /footer on|off", "warning");
         return;
       }
       if (!ctx.hasUI) return;
@@ -3114,7 +3185,15 @@ export default function footerExtension(pi: ExtensionAPI): void {
             currentValue: footerConfig[row.key] ?? row.values[0],
             values: [...row.values],
           }));
+        const viewItem = (): SettingItem => ({
+          id: "view",
+          label: "View".padEnd(labelWidth),
+          description: "This session only, never saved: minimal keeps dir, branch, model, context and usage; full shows every chip in detail. Chip edits below change the saved layout.",
+          currentValue: view,
+          values: [...FOOTER_VIEWS],
+        });
         const buildItems = (): SettingItem[] => [
+          viewItem(),
           ...layoutItems(),
           ...[...footerConfig.order, "name" as const, "statuses" as const].flatMap((id) => {
             const chip = chipById.get(id)!;
@@ -3170,6 +3249,10 @@ export default function footerExtension(pi: ExtensionAPI): void {
           }
         };
         const onChange = (id: string, value: string) => {
+          if (id === "view") {
+            if (isFooterView(value)) setView(value);
+            return;
+          }
           const layout = layoutRow(id);
           if (layout) {
             footerConfig[layout.key] = value;
@@ -3221,7 +3304,7 @@ export default function footerExtension(pi: ExtensionAPI): void {
           // A condition row previews the chip it applies to.
           // A layout row previews the whole row, from its first chip.
           previewChip =
-            (id && layoutRow(id) && footerConfig.order[0]) ||
+            (id && (id === "view" || layoutRow(id)) && footerConfig.order[0]) ||
             (id && conditionRow(id)?.chip) ||
             ((id as FooterChipId | undefined) ?? FOOTER_CHIPS[0].id);
           repaint?.();
@@ -3245,6 +3328,9 @@ export default function footerExtension(pi: ExtensionAPI): void {
         const header = () => [
           theme.fg("accent", "Footer chips"),
           theme.fg("dim", "j/k select · J/K or ⇧↑/⇧↓ move · click a chip to flip its mode for this session"),
+          ...(view === "saved"
+            ? []
+            : [theme.fg("warning", `Showing the ${view} view: chip edits change the saved layout · View → saved to see it`)]),
           "",
         ];
         // The save state, under the list.
@@ -3304,6 +3390,7 @@ export default function footerExtension(pi: ExtensionAPI): void {
     // unsaved /footer changes stay with the session they were made in.
     footerConfig = readFooterConfig();
     sessionEdited = false;
+    view = "saved";
     applySavedModes();
     apply(ctx);
     installNameBorder(ctx);

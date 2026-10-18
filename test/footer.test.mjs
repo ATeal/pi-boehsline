@@ -24,6 +24,8 @@ afterEach(async () => {
 import { VERSION as RUNNING_PI_VERSION } from "@earendil-works/pi-coding-agent";
 import footer, {
   CHIP_MODES,
+  viewConfig,
+  alarmStatuses,
   contextAboveThreshold,
   defaultChipHidden,
   dirLabel,
@@ -2397,6 +2399,61 @@ test("/footer: Placement is the first row, cycles below → top border left → 
   });
 });
 
+test("/footer minimal|full|saved switch this session's view without touching footer.json", async () => {
+  await withAgentDir(async (dir) => {
+    const statuses = new Map([["turn-timer", "3s"], ["claude-billing", "\x1b[31m⚠ Claude extra usage\x1b[39m"]]);
+    const ui = await mount({ statuses, model: { id: "claude-opus-5-5", provider: "anthropic", reasoning: true }, usingOAuth: true });
+    let [main] = await ui.settled(160);
+    assert.match(main, /^dotfiles master\* a hi 41\/1m/, "saved: flagship model hidden, no $ on OAuth");
+
+    await ui.run("footer", "minimal");
+    const minimal = ui.plain();
+    assert.match(minimal[0], /^dotfiles master a hi 41\/1m/, "minimal: branch only, no cost/boot/rate");
+    assert.equal(minimal[1], "⚠ Claude extra usage", "statuses hidden, but the alarm still shows");
+    assert.equal(existsSync(path.join(dir, "footer.json")), false, "a view is never saved");
+
+    await ui.run("footer", "full");
+    const full = ui.plain();
+    assert.match(full[0], / a opus hi /, "full shows the flagship model");
+    assert.match(full[0], /\$/, "and the cost estimate");
+    assert.match(full[1], /3s .*⚠ Claude extra usage/, "and every status");
+
+    await ui.run("footer", "saved");
+    assert.equal(ui.plain()[0], main);
+  });
+});
+
+test("/footer's View row switches the view and warns that chip edits change the saved layout", async () => {
+  await withAgentDir(async () => {
+    const ui = await mount();
+    const list = await openChecklist(ui);
+    selectRow(list, /^→ View\s+saved/, "k");
+    list.handleInput(" ");
+    assert.match(list.render(140).map(strip).find((line) => line.startsWith("→")), /→ View\s+minimal/);
+    assert.ok(list.render(140).map(strip).some((line) => line.includes("Showing the minimal view")));
+    list.handleInput(" ");
+    list.handleInput(" "); // full → saved
+    assert.ok(!list.render(140).map(strip).some((line) => line.includes("Showing the")));
+  });
+});
+
+test("viewConfig: minimal narrows the saved layout; full clears hiding and conditions", () => {
+  const saved = { hidden: new Set(["rate"]), modes: { git: "full", usage: "compact" }, order: [], providerWhen: "unless default", contextMin: ">50k" };
+  assert.equal(viewConfig(saved, "saved"), saved);
+  const minimal = viewConfig(saved, "minimal");
+  assert.ok(minimal.hidden.has("rate") && minimal.hidden.has("cost") && minimal.hidden.has("statuses"));
+  assert.ok(!minimal.hidden.has("context") && !minimal.hidden.has("bypass"));
+  assert.equal(minimal.modes.usage, "mini");
+  assert.equal(minimal.providerWhen, "unless default", "minimal keeps the saved conditions");
+  const full = viewConfig(saved, "full");
+  assert.equal(full.hidden.size, 0);
+  assert.equal(full.providerWhen, undefined);
+  assert.equal(full.contextMin, undefined);
+  assert.equal(full.modes.cost, "detailed");
+  assert.equal(saved.hidden.size, 1, "the saved config is not mutated");
+  assert.deepEqual(alarmStatuses(["3s", "\x1b[31m⚠ x\x1b[39m"]), ["\x1b[31m⚠ x\x1b[39m"]);
+});
+
 /** Open /footer against a stub ui.custom; returns the checklist component. */
 /** Move down (or with `key`) until the selected row matches, rather than counting rows. */
 function selectRow(list, pattern, key = "j") {
@@ -2412,9 +2469,9 @@ async function openChecklist(ui) {
     list = factory({ requestRender() {} }, { fg: (_color, text) => text }, {}, () => {});
   };
   await ui.run("footer");
-  // Past the layout rows (Placement) to the first chip, where these tests start;
-  // `k` goes back up to them.
-  for (let i = 0; i < LAYOUT_ROWS.length; i += 1) list.handleInput("j");
+  // Past the View row and the layout rows (Placement) to the first chip,
+  // where these tests start; `k` goes back up to them.
+  for (let i = 0; i < LAYOUT_ROWS.length + 1; i += 1) list.handleInput("j");
   return list;
 }
 
