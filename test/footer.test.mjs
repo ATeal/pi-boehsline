@@ -38,7 +38,6 @@ import footer, {
   gitChipHidden,
   DEFAULT_CHIP_ORDER,
   FOOTER_CHIPS,
-  minutesUntilClock,
   LAYOUT_ROWS,
   nameTopBorder,
   readFooterConfig,
@@ -1382,11 +1381,15 @@ test("session name is right-aligned and statuses split inline vs status row", as
   assert.equal(main.length, 120);
 });
 
-test("the idle-compaction chip sits dim right after ctx, not in the status row", async () => {
-  const ui = await mount({ statuses: new Map([["idle-compact", "⏲ 10:54p"], ["turn-timer", "3s"]]) });
-  const [main, statusRow] = await ui.settled(120);
-  assert.match(main, /41\/1m ⏲ 10:54p(\s|$)/);
-  assert.equal(statusRow, "3s");
+test("a footer.json from before the idle chip was removed still loads", async () => {
+  await withAgentDir(async (dir) => {
+    writeFileSync(path.join(dir, "footer.json"), JSON.stringify({ hidden: ["idle"], modes: { idle: "countdown" }, order: ["idle", "git"] }));
+    const config = readFooterConfig();
+    assert.equal(config.hidden.size, 0);
+    assert.deepEqual(config.modes, {});
+    assert.ok(!config.order.includes("idle"));
+    assert.ok(!FOOTER_CHIPS.some((chip) => chip.id === "idle"), "not listed in /footer");
+  });
 });
 
 test("a mise that ignores SIGTERM does not hold the update check", async () => {
@@ -2039,8 +2042,8 @@ test("footer.json: unknown ids, modes and broken files fall back to defaults; wr
     assert.deepEqual(config.order.slice(-2), ["dir", "worktree"]);
     assert.equal(config.order.length, DEFAULT_CHIP_ORDER.length);
 
-    writeFooterConfig({ hidden: new Set(["rate", "dir"]), modes: { context: "tokens", idle: "countdown" }, order: [...DEFAULT_CHIP_ORDER] });
-    assert.deepEqual(JSON.parse(readFileSync(file, "utf8")), { hidden: ["dir", "rate"], modes: { idle: "countdown" } });
+    writeFooterConfig({ hidden: new Set(["rate", "dir"]), modes: { context: "tokens", cost: "detailed" }, order: [...DEFAULT_CHIP_ORDER] });
+    assert.deepEqual(JSON.parse(readFileSync(file, "utf8")), { hidden: ["dir", "rate"], modes: { cost: "detailed" } });
   });
 });
 
@@ -2507,6 +2510,22 @@ test("/footer saves on Alt+Shift+S too (ESC S: Caps Lock, scripted terminals)", 
   });
 });
 
+test("/footer highlights the whole name of a selected indented setting row", async () => {
+  await withAgentDir(async () => {
+    const ui = await mount();
+    ui.plain();
+    let list;
+    ui.ctx.ui.custom = async (factory) => {
+      // Mark accent text so the test can see exactly what the highlight covers.
+      list = factory({ requestRender() {} }, { fg: (color, text) => (color === "accent" ? `\x1b[7m${text}\x1b[27m` : text) }, {}, () => {});
+    };
+    await ui.run("footer");
+    selectRow(list, /Thinking condition/);
+    const row = list.render(140).find((line) => line.includes("Thinking condition"));
+    assert.match(row, /\x1b\[7m\s*Thinking condition\s*\x1b\[27m/, JSON.stringify(row));
+  });
+});
+
 test("/footer lists every chip with its live value and saves toggles to footer.json", async () => {
   await withAgentDir(async (dir) => {
     const ui = await mount();
@@ -2651,21 +2670,6 @@ test("git branch mode drops the dirty marker and arrows", async () => {
     const ui = await mount({ revList: "2\t1" });
     const line = await ui.settled();
     assert.match(line[0], /^dotfiles master gh /);
-  });
-});
-
-test("idle countdown mode shows minutes left instead of the clock", async () => {
-  const now = new Date(2026, 9, 15, 14, 4, 30);
-  assert.equal(minutesUntilClock("⏲ 2:41p", now), 37);
-  assert.equal(minutesUntilClock("⏲ 12:05a", new Date(2026, 9, 15, 23, 50)), 15, "past midnight");
-  assert.equal(minutesUntilClock("soon", now), undefined);
-  await withAgentDir(async (dir) => {
-    writeFileSync(path.join(dir, "footer.json"), JSON.stringify({ modes: { idle: "countdown" } }));
-    const inAnHour = new Date(Date.now() + 37 * 60_000 + 20_000);
-    const hours = inAnHour.getHours();
-    const clock = `⏲ ${hours % 12 || 12}:${String(inAnHour.getMinutes()).padStart(2, "0")}${hours < 12 ? "a" : "p"}`;
-    const ui = await mount({ statuses: new Map([["idle-compact", clock]]) });
-    assert.match(ui.plain()[0], /41\/1m ⏲ 3[78]m/);
   });
 });
 

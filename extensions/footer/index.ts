@@ -113,9 +113,6 @@ const INLINE_STATUS_KEYS = ["codex-window", "copilot-window", "grok-window", "ce
 /** provider-usage listens: { days, setAt } from the /footer OOO row (same string there). */
 const FOOTER_COPILOT_OOO_EVENT = "footer:copilot-ooo";
 
-/** compaction/index.ts: "⏲ 10:54p" while the idle-compaction timer is armed. Shown dim after ctx. */
-const IDLE_COMPACT_STATUS = "idle-compact";
-
 /**
  * Every footer chip, in painted order. The id keys footer.json and the click
  * zones; the description is what /footer shows for the selected row, and the
@@ -131,7 +128,6 @@ export const FOOTER_CHIPS = [
   { id: "thinking", label: "Thinking", example: "med", description: "Thinking level (med, hi, xhi). Click: next level." },
   { id: "bypass", label: "Bypass", example: "bypass", description: "While Approval Guardian is bypassed: the session name turns red with ⚠ (name), a red bypass chip (chip, or when no name shows), or both. Click either: turn the guardian back on." },
   { id: "context", label: "Context", example: "42k/1m", description: "Context tokens / window, or a percent, coloured as it fills. Click: flip for this session." },
-  { id: "idle", label: "Idle compaction", example: "⏲ 2:41p", description: "When idle compaction fires (54 minutes after the last request): a clock time or a countdown. /idle explains when it is missing." },
   { id: "cost", label: "Cost", example: "$0.42", description: "Session cost, or a provider budget (ollama, baseten, openrouter) as a percent (compact) or total (detailed). Click: flip for this session." },
   { id: "usage", label: "Rate limits", example: "57%", description: "Provider usage windows: Copilot premium-request share over workdays (W) with the %/d left per workday, Codex/Grok/Claude windows, compact, detailed, or mini (just ↑ speed up / ↓ slow down, hidden on pace). Click: cycle for this session." },
   { id: "boot", label: "Boot time", example: "⚡775ms", description: "⚡ startup time, until the first message. Click: recent boot stats." },
@@ -160,7 +156,6 @@ export const CHIP_MODES: Partial<Record<FooterChipId, readonly string[]>> = {
   dir: ["name", "full path"],
   git: ["full", "branch"],
   context: ["tokens", "percent"],
-  idle: ["clock", "countdown"],
   cost: ["compact", "detailed"],
   // compact stays first (the default); a click cycles compact → detailed → mini.
   usage: ["compact", "detailed", "mini"],
@@ -667,17 +662,6 @@ export function rateChipShown(
   const thresholdMs = Number(match[1]) * 1_000;
   const ms = turn.active ? turn.elapsedMs : turn.lastTurnMs;
   return ms !== undefined && ms >= thresholdMs;
-}
-
-/** Minutes until a footer clock label ("2:41p") next comes round, for the idle countdown. */
-export function minutesUntilClock(label: string, now: Date): number | undefined {
-  const match = /(\d{1,2}):(\d{2})([ap])/.exec(label);
-  if (!match) return undefined;
-  const hours = (Number(match[1]) % 12) + (match[3] === "p" ? 12 : 0);
-  const target = new Date(now);
-  target.setHours(hours, Number(match[2]), 0, 0);
-  if (target.getTime() < now.getTime() - 60_000) target.setDate(target.getDate() + 1);
-  return Math.max(0, Math.ceil((target.getTime() - now.getTime()) / 60_000));
 }
 
 /**
@@ -2144,7 +2128,7 @@ export default function footerExtension(pi: ExtensionAPI): void {
     | "gitPull";
   /** Clickable zones: chip ids, plus the git chip's three segments. */
   type FooterZoneKey =
-    | Exclude<FooterChipId, "git" | "idle" | "worktree" | "statuses">
+    | Exclude<FooterChipId, "git" | "worktree" | "statuses">
     | "gitBranch"
     | "gitBehind"
     | "gitAhead";
@@ -2181,8 +2165,6 @@ export default function footerExtension(pi: ExtensionAPI): void {
   };
   /** /footer changed footerConfig in this session and Alt+S has not saved it. */
   let sessionEdited = false;
-  /** The idle chip is showing a countdown, so the update tick repaints it. */
-  let idleCountdownShown = false;
   /**
    * Start the session-only click toggles in the modes /footer saved. A click
    * still flips them, for this session only.
@@ -2569,17 +2551,6 @@ export default function footerExtension(pi: ExtensionAPI): void {
         }
         const showBoot = bootMs !== undefined && !bootCleared;
 
-        // Idle compaction as compaction/index.ts set it (⏲ 2:41p), or as a
-        // countdown (⏲ 37m), which the 30s update tick keeps current.
-        const idleChipText = (status: string | undefined): string => {
-          idleCountdownShown = false;
-          if (!status) return "";
-          const minutes =
-            chipMode(shown(), "idle") === "countdown" ? minutesUntilClock(status, new Date()) : undefined;
-          if (minutes === undefined) return theme.fg("dim", status);
-          idleCountdownShown = true;
-          return theme.fg("dim", `⏲ ${minutes}m`);
-        };
         const hideAsDefault = (chip: "provider" | "model" | "thinking") =>
           defaultChipHidden(
             chip,
@@ -2625,7 +2596,6 @@ export default function footerExtension(pi: ExtensionAPI): void {
                   usage?.tokens == null ? "?" : formatThousands(usage.tokens),
                 )}/${color(CYAN, usage?.contextWindow ? formatCount(usage.contextWindow) : "?")}`,
           ],
-          ["idle", idleChipText(statuses.get(IDLE_COMPACT_STATUS))],
           [
             "cost",
             usageValue
@@ -2716,7 +2686,7 @@ export default function footerExtension(pi: ExtensionAPI): void {
             case "name":
               return color(CYAN, text);
             default:
-              // idle, boot and the status row are dim in the real footer.
+              // boot and the status row are dim in the real footer.
               return theme.fg("dim", text);
           }
         };
@@ -2747,8 +2717,8 @@ export default function footerExtension(pi: ExtensionAPI): void {
             if (usageValue) zones.cost = span;
           } else if (id === "usage") {
             zones.usage = span;
-          } else if (id !== "idle" && id !== "worktree") {
-            // The idle-compaction and worktree chips are glance-only; every other chip is its own zone.
+          } else if (id !== "worktree") {
+            // The worktree chip is glance-only; every other chip is its own zone.
             zones[id] = span;
           }
           parts.push({ id, text: part, width: partWidth, zones });
@@ -2876,7 +2846,7 @@ export default function footerExtension(pi: ExtensionAPI): void {
           const lines = chipRows.map((row) => row.line);
           const extra: string[] = [];
           for (const [key, value] of statuses) {
-            if (!value || key === IDLE_COMPACT_STATUS || (INLINE_STATUS_KEYS as readonly string[]).includes(key)) continue;
+            if (!value || (INLINE_STATUS_KEYS as readonly string[]).includes(key)) continue;
             extra.push(value);
           }
           if (extra.length > 0) {
@@ -3191,7 +3161,13 @@ export default function footerExtension(pi: ExtensionAPI): void {
       // pick that up unless this session has changes of its own to keep.
       if (!sessionEdited) footerConfig = readFooterConfig();
       await ctx.ui.custom<void>((tui, theme, _keybindings, done) => {
-        const labelWidth = Math.max(...FOOTER_CHIPS.map((chip) => chip.label.length));
+        // Wide enough for every row's name, indented setting rows included
+        // ("  Thinking condition"), so the selected row's highlight covers it.
+        const labelWidth = Math.max(
+          ...FOOTER_CHIPS.map((chip) => chip.label.length),
+          ...CONDITION_ROWS.map((row) => `  ${row.label}`.length),
+          ...LAYOUT_ROWS.map((row) => row.label.length),
+        );
         // SettingsList aligns values after at most 36 label columns; a longer
         // label would push its value out of line, so samples fit in the rest.
         const sampleWidth = Math.max(8, 36 - labelWidth - 2);
@@ -3427,8 +3403,6 @@ export default function footerExtension(pi: ExtensionAPI): void {
       updateTimerStarted = true;
       updateTimer = setInterval(() => {
         update.reload(() => repaint?.());
-        // The idle countdown (⏲ 37m) needs a repaint to count down.
-        if (idleCountdownShown) repaint?.();
       }, UPDATE_TTL_MS);
       updateTimer.unref?.();
     }

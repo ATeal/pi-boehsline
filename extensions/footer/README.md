@@ -12,7 +12,7 @@ quota chips, boot time) plus `/bypass`, `/boot` and `/footer`.
 value; the selected row's description says what it shows and what a click
 does. Enter or Space cycles the row's value: `shown`/`hidden`, or for chips
 with display modes, each mode then `hidden` (Directory name/full path, Git
-full/branch, Context tokens/percent, Idle compaction clock/countdown, Cost and
+full/branch, Context tokens/percent, Cost and
 Rate limits compact/detailed, Token rate number/with TTFT, Session name
 border/footer). A Git condition
 row under Git can hide the branch on a clean default branch (origin/HEAD's,

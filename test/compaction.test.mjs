@@ -464,21 +464,26 @@ test("idle timer compacts 54 minutes after the last request, and input cancels i
   mock.timers.enable({ apis: ["setTimeout", "Date"] });
   t.after(() => mock.timers.reset());
 
-  const { handlers, calls, ctx } = extension();
+  const { handlers, commands, calls, ctx } = extension();
+  const idle = () => {
+    commands.idle.handler("", ctx);
+    return calls.notify.at(-1);
+  };
   handlers.before_provider_request({ payload: sessionPayload() }, ctx);
   handlers.agent_settled({}, ctx);
-  assert.deepEqual(calls.status.at(-1), ["idle-compact", `⏲ ${clockLabel(new Date(54 * 60_000))}`], "footer chip shows the fire time");
+  assert.match(idle(), new RegExp(`^Armed: compacts at ${clockLabel(new Date(54 * 60_000))} `), "/idle shows the fire time");
+  assert.deepEqual(calls.status, [], "no footer chip: /idle is the only place it shows");
   mock.timers.tick(54 * 60_000 - 1);
   assert.equal(calls.compact, 0);
   mock.timers.tick(1);
   assert.equal(calls.compact, 1);
-  assert.deepEqual(calls.status.at(-1), ["idle-compact", undefined], "chip cleared when it fires");
+  assert.doesNotMatch(idle(), /^Armed/, "disarmed when it fires");
 
   handlers.before_provider_request({ payload: sessionPayload() }, ctx);
   handlers.agent_settled({}, ctx);
-  assert.equal(calls.status.at(-1)[1].startsWith("⏲"), true);
+  assert.match(idle(), /^Armed/);
   handlers.input({}, ctx);
-  assert.deepEqual(calls.status.at(-1), ["idle-compact", undefined], "chip cleared on input");
+  assert.doesNotMatch(idle(), /^Armed/, "disarmed on input");
   mock.timers.tick(60 * 60_000);
   assert.equal(calls.compact, 1, "input cancelled it");
 });

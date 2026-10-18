@@ -28,9 +28,6 @@ import {
 import { fitSummary, summaryBudget } from "./summary-budget.ts";
 import { summarizeWithoutThinking } from "./thoughtless.ts";
 
-/** ctx.ui.setStatus key for the footer chip; footer.ts renders it inline. */
-export const IDLE_COMPACT_STATUS = "idle-compact";
-
 // Compaction, in one session_before_compact handler (pi runs every handler and
 // keeps the last result, so two handlers would both pay for a summary):
 //
@@ -50,25 +47,13 @@ export default function (pi: ExtensionAPI) {
 	let captured: CapturedRequest | undefined;
 	let compacting = false;
 	let idleTimer: ReturnType<typeof setTimeout> | undefined;
-	// When the armed timer fires, for /idle.
+	// When the armed timer fires, for /idle (the only place it shows).
 	let idleFiresAt: number | undefined;
-	// The ctx that armed the timer, to clear the footer chip with.
-	let chipCtx: ExtensionContext | undefined;
-
-	const setChip = (ctx: ExtensionContext | undefined, text: string | undefined) => {
-		try {
-			ctx?.ui.setStatus(IDLE_COMPACT_STATUS, text);
-		} catch {
-			// A ctx from a replaced session throws; its footer is gone anyway.
-		}
-	};
 
 	const clearIdleTimer = () => {
 		if (idleTimer) clearTimeout(idleTimer);
 		idleTimer = undefined;
 		idleFiresAt = undefined;
-		setChip(chipCtx, undefined);
-		chipCtx = undefined;
 	};
 
 	pi.on("before_provider_request", (event, ctx) => {
@@ -122,10 +107,6 @@ export default function (pi: ExtensionAPI) {
 		}, delay);
 		idleTimer.unref?.();
 		idleFiresAt = Date.now() + delay;
-		// footer.ts shows this dim after the context chip.
-		chipCtx = ctx;
-		// The space: terminals draw ⏲ two cells wide, over the clock's first digit.
-		setChip(ctx, `⏲ ${clockLabel(new Date(Date.now() + delay))}`);
 	});
 
 	// Any activity, a model switch or leaving the session cancels the timer.
