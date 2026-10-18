@@ -571,6 +571,19 @@ export function readChipDefaults(cwd: string): ChipDefaults {
   };
 }
 
+/** Each provider's current flagship: the provider letter alone stands for it,
+ *  so the model chip is left out. Exact releases, like shortModel's aliases. */
+const FLAGSHIP_MODELS: Record<string, RegExp> = {
+  anthropic: /^claude-opus-5-5$/i,
+  "github-copilot": /^claude-opus-5\.5$/i,
+  xai: /^grok-4\.7$/i,
+};
+
+export function flagshipModel(provider: string | undefined, model: string | undefined): boolean {
+  const pattern = provider ? FLAGSHIP_MODELS[provider] : undefined;
+  return !!pattern && !!model && pattern.test(model);
+}
+
 /** Whether a provider/model/thinking chip is hidden by its "unless default" condition. */
 export function defaultChipHidden(
   chip: "provider" | "model" | "thinking",
@@ -2515,7 +2528,7 @@ export default function footerExtension(pi: ExtensionAPI): void {
           ],
           [
             "model",
-            hideAsDefault("model")
+            hideAsDefault("model") || flagshipModel(provider, ctx.model?.id)
               ? ""
               : color(BRIGHT_YELLOW, `${routePrefix(provider, ctx.model?.id)}${shortModel(ctx.model?.id, provider)}`),
           ],

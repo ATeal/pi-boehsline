@@ -85,6 +85,10 @@ level this model starts on: its `modelThinkingLevels` entry, else
 `defaultThinkingLevel`, else pi's `medium` (settings.json, a project's
 `.pi/settings.json` first). Switching away shows it again.
 
+Each provider's current flagship drops the model chip, so the provider letter
+stands for it: `a` is Anthropic's Claude Opus 5.5, `gh` Copilot's Claude Opus
+5.5, and `x` Grok 4.7. Other releases show their model as usual.
+
 The Rate limits chip has three modes: `compact` (`61.4% 4.3%/d`), `detailed`
 (`12.1/20.2W: 61.4% 4.3%/d`) and `mini`, just an arrow from pace: `↓` slow
 down when any window is more than 5 points ahead (yellow, orange past 10, red

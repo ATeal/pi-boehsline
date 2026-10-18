@@ -75,7 +75,7 @@ globalThis.__piFooterLoaded = true;
 
 async function mount(overrides = {}) {
   const {
-    model = { id: "claude-opus-5.5", provider: "github-copilot", reasoning: true },
+    model = { id: "claude-sonnet-5.5", provider: "github-copilot", reasoning: true },
     contextUsage = { tokens: 41234, contextWindow: 1000000, percent: 4 },
     branch = "master",
     sessionName = undefined,
@@ -313,7 +313,7 @@ function clampThinking(requested, supported) {
 
 test("renders the full line once git has settled", async () => {
   const ui = await mount();
-  assert.equal((await ui.settled())[0], "dotfiles master* gh opus hi 41/1m");
+  assert.equal((await ui.settled())[0], "dotfiles master* gh sonn hi 41/1m");
 });
 
 /** Drive one streamed reply: turn_start, ttft wait, deltas over `ms`, message_end. */
@@ -506,7 +506,7 @@ test("tk/s state resets on session change and model switch", async (t) => {
 
 test("first render omits git and repaints when the refresh lands", async () => {
   const ui = await mount();
-  assert.equal(ui.plain()[0], "dotfiles master gh opus hi 41/1m");
+  assert.equal(ui.plain()[0], "dotfiles master gh sonn hi 41/1m");
   await new Promise((resolve) => setTimeout(resolve, 50));
   assert.equal(ui.renderCount(), 1, "should repaint exactly once when git arrives");
 });
@@ -542,7 +542,7 @@ test("a git status that times out keeps the last state instead of dropping the d
 
 test("non-repo directories drop the git segments", async () => {
   const ui = await mount({ branch: null, gitCode: 128, porcelain: "" });
-  assert.equal((await ui.settled())[0], "dotfiles gh opus hi 41/1m");
+  assert.equal((await ui.settled())[0], "dotfiles gh sonn hi 41/1m");
 });
 
 test("dirty marker: any change earns a single '*' glued to the branch", async () => {
@@ -640,10 +640,8 @@ test("model aliases are lowercased, unknown ids pass through", async () => {
 
 test("provider-specific model aliases are pinned to exact releases", async () => {
   for (const [model, expected] of [
-    [{ id: "claude-opus-5.5", provider: "github-copilot", reasoning: true }, "opus"],
     [{ id: "claude-opus-5", provider: "github-copilot", reasoning: true }, "opus-5"],
     [{ id: "claude-opus-6", provider: "github-copilot", reasoning: true }, "opus-6"],
-    [{ id: "claude-opus-5-5", provider: "anthropic", reasoning: true }, "opus"],
     [{ id: "claude-opus-5", provider: "anthropic", reasoning: true }, "opus-5"],
     [{ id: "claude-opus-6", provider: "anthropic", reasoning: true }, "opus-6"],
     [{ id: "claude-sonnet-5.5", provider: "github-copilot", reasoning: true }, "sonn"],
@@ -656,7 +654,6 @@ test("provider-specific model aliases are pinned to exact releases", async () =>
     [{ id: "gpt-7-sol", provider: "openai-codex", reasoning: true }, "gpt-7-sol"],
     [{ id: "gpt-6-astra", provider: "openai-codex", reasoning: true }, "astra"],
     [{ id: "gpt-7-astra", provider: "openai-codex", reasoning: true }, "gpt-7-astra"],
-    [{ id: "grok-4.7", provider: "xai", reasoning: true }, "grok"],
     [{ id: "grok-4.6", provider: "xai", reasoning: true }, "grok-4.6"],
     [{ id: "grok-5", provider: "xai", reasoning: true }, "grok-5"],
     [{ id: "glm-5.3-flash", provider: "ollama", reasoning: true }, "glm-5.3f"],
@@ -665,6 +662,24 @@ test("provider-specific model aliases are pinned to exact releases", async () =>
     const rest = ui.plain()[0].split(" ").slice(3).join(" ");
     assert.ok(rest.startsWith(`${expected} `), `${model.provider}/${model.id} -> ${rest}`);
   }
+});
+
+test("each provider's flagship shows as the provider letter alone, still click-to-cycle", async () => {
+  for (const [model, expected] of [
+    [{ id: "claude-opus-5-5", provider: "anthropic", reasoning: true }, "a hi"],
+    [{ id: "claude-opus-5.5", provider: "github-copilot", reasoning: true }, "gh hi"],
+    [{ id: "grok-4.7", provider: "xai", reasoning: true }, "x hi"],
+    // Other releases, and the same id on another provider, keep the model chip.
+    [{ id: "claude-opus-5-5", provider: "github-copilot", reasoning: true }, "gh opus-5-5 hi"],
+    [{ id: "claude-opus-5", provider: "anthropic", reasoning: true }, "a opus-5 hi"],
+    [{ id: "grok-4.6", provider: "xai", reasoning: true }, "x grok-4.6 hi"],
+  ]) {
+    const ui = await mount({ model });
+    const line = ui.plain()[0];
+    assert.ok(line.includes(` ${expected} `), `${model.provider}/${model.id} -> ${line}`);
+  }
+  const ui = await mount({ model: { id: "grok-4.7", provider: "xai", reasoning: true } });
+  assert.deepEqual(ui.click(ui.plain()[0].indexOf(" x ") + 1, 0), { handled: true }, "provider chip cycles models");
 });
 
 test("an OpenRouter route prefixes the model chip, for that model only", async () => {
@@ -993,7 +1008,7 @@ test("'unless default' hides provider, model and thinking only while they match"
 
 test("with 'unless default' saved, the footer drops provider/model/thinking at their defaults and shows them once they differ", async () => {
   await withAgentDir(async (dir) => {
-    writeFileSync(path.join(dir, "settings.json"), JSON.stringify({ defaultProvider: "github-copilot", defaultModel: "claude-opus-5.5", defaultThinkingLevel: "high" }));
+    writeFileSync(path.join(dir, "settings.json"), JSON.stringify({ defaultProvider: "github-copilot", defaultModel: "claude-sonnet-5.5", defaultThinkingLevel: "high" }));
     writeFileSync(path.join(dir, "footer.json"), JSON.stringify({ providerWhen: "unless default", modelWhen: "unless default", thinkingWhen: "unless default" }));
     const atDefault = await mount();
     await atDefault.settled();
@@ -1391,7 +1406,7 @@ test("update notice shows both versions in a right-aligned widget above the prom
   const widget = widgetFactory({ requestRender: () => {} });
   const message = `Update installed v${RUNNING_PI_VERSION} → v99.0.0 · Restart to update`;
 
-  assert.equal(main, "dotfiles master* gh opus hi 41/1m");
+  assert.equal(main, "dotfiles master* gh sonn hi 41/1m");
   assert.equal(strip(widget.render(80)[0]), `${" ".repeat(80 - message.length)}${message}`);
   assert.match(
     widget.render(80)[0],
@@ -1579,7 +1594,7 @@ test("no peer registry means no right-hand segment at all", async () => {
   try {
     const ui = await mount({ sessionName: undefined });
     const [main] = await ui.settled(80);
-    assert.equal(main, "dotfiles master* gh opus hi 41/1m", "no padding, no trailing gap");
+    assert.equal(main, "dotfiles master* gh sonn hi 41/1m", "no padding, no trailing gap");
   } finally {
     restore();
   }
@@ -1617,7 +1632,7 @@ test("chips wrap whole onto more rows instead of truncating", async () => {
   // only the space left of it; chips that no longer fit move down whole onto
   // a full-width row rather than being cut mid-chip.
   assert.equal(lines[0], "dotfiles master*   footer-work");
-  assert.equal(lines[1], "gh opus hi 41/1m");
+  assert.equal(lines[1], "gh sonn hi 41/1m");
   assert.ok(lines.every((line) => line.length <= 30), "every row fits the width");
   assert.ok(!lines.join("\n").includes("…"), "nothing is cut");
 });
@@ -2023,7 +2038,7 @@ test("hidden chips leave the footer, and click zones follow the chips that remai
     const ui = await mount();
     const line = ui.plain()[0];
     assert.match(line, /^master/, "directory hidden");
-    assert.doesNotMatch(line, / opus /, "model hidden");
+    assert.doesNotMatch(line, / sonn /, "model hidden");
     // The context chip moved left; clicking where it is now still toggles it.
     assert.deepEqual(ui.click(line.indexOf("41/1m"), 0), { handled: true });
     assert.match(ui.plain()[0], / 4%/);
@@ -2223,16 +2238,16 @@ test("top-border placement: the editor takes the chips that fit and the footer b
     // pi renders the editor, then the footer, in one synchronous pass.
     const top = strip(editor.renderTopBorder(120, 0));
     const below = ui.plain();
-    assert.match(top, /^\{──\} \{my-session\} \{─+\} dotfiles master\* gh opus hi 41\/1m \{──\}$/);
+    assert.match(top, /^\{──\} \{my-session\} \{─+\} dotfiles master\* gh sonn hi 41\/1m \{──\}$/);
     assert.deepEqual(below, [], "every chip went up, so no footer row");
     // A pass without the editor (a selector in its place) shows them below again.
     await Promise.resolve();
-    assert.match(ui.plain()[0], /^dotfiles master\* gh opus hi 41\/1m +my-session$/, "and the name, which the border didn't draw");
+    assert.match(ui.plain()[0], /^dotfiles master\* gh sonn hi 41\/1m +my-session$/, "and the name, which the border didn't draw");
     // Too narrow for all: the rest stay below, whole and in order.
     const narrow = strip(editor.renderTopBorder(44, 0));
     const rest = ui.plain(44);
     assert.match(narrow, /\} dotfiles master\* gh \{──\}$/);
-    assert.equal(rest[0], "opus hi 41/1m");
+    assert.equal(rest[0], "sonn hi 41/1m");
   });
 });
 
@@ -2256,7 +2271,7 @@ test("bottom-border placement: the chips go in the bottom border before pi's ↓
     const lines = editor.render(120).map(strip);
     const below = ui.plain();
     assert.match(lines[0], /^\{──\} \{my-session\} \{─+\}$/, "the name alone on top");
-    assert.match(lines[2], /^\{─+\} dotfiles master\* gh opus hi 41\/1m \{──\}$/);
+    assert.match(lines[2], /^\{─+\} dotfiles master\* gh sonn hi 41\/1m \{──\}$/);
     assert.deepEqual(below, [], "every chip went down into the border");
     // Clicks find the bottom border's row even with the autocomplete row under it.
     const x = lines[2].indexOf("dotfiles");
@@ -2295,7 +2310,7 @@ test("bottom border left: the chips start the line, pi's ↓ stays at the right;
     const ui = await mount({ mode: "tui", sessionName: "my-session", editorFactory: editorLike });
     await ui.settled();
     const lines = ui.editorFactory()().render(120).map(strip);
-    assert.match(lines[2], /^\{──\} dotfiles master\* gh opus hi 41\/1m \{─+\}$/);
+    assert.match(lines[2], /^\{──\} dotfiles master\* gh sonn hi 41\/1m \{─+\}$/);
     assert.deepEqual(ui.plain(), [], "every chip went into the border");
     writeFileSync(path.join(dir, "footer.json"), JSON.stringify({ placement: "bottom border" }));
     assert.equal(readFooterConfig().placement, "bottom border right", "saved before the split: the right");
@@ -2315,7 +2330,7 @@ test("top border left: the chips follow the name; an old 'top border' means righ
     const ui = await mount({ mode: "tui", sessionName: "my-session", editorFactory: () => fakeEditor() });
     await ui.settled();
     const editor = ui.editorFactory()();
-    assert.match(strip(editor.renderTopBorder(120, 0)), /^\{──\} \{my-session\} \{─\} dotfiles master\* gh opus hi 41\/1m \{─+\}$/);
+    assert.match(strip(editor.renderTopBorder(120, 0)), /^\{──\} \{my-session\} \{─\} dotfiles master\* gh sonn hi 41\/1m \{─+\}$/);
     writeFileSync(path.join(dir, "footer.json"), JSON.stringify({ placement: "top border" }));
     assert.equal(readFooterConfig().placement, "top border right", "saved before the split: the right");
   });
@@ -2474,7 +2489,7 @@ test("/footer previews in the real footer: the selected chip blinks, the rest go
     const footerLine = () => ui.raw()[0];
     // Directory is selected first: it blinks underlined; other chips are faint, dim and uncoloured.
     assert.match(footerLine(), /\x1b\[5m\x1b\[4m\x1b\[[0-9;]*mdotfiles/);
-    assert.match(footerLine(), /\x1b\[2m\x1B\[2mopus\x1B\[22m\x1b\[22m/);
+    assert.match(footerLine(), /\x1b\[2m\x1B\[2msonn\x1B\[22m\x1b\[22m/);
 
     selectRow(list, /^→ Git\b/, "\x1b[B"); // down to Git (past Worktree)
     assert.match(footerLine(), /\x1b\[5m.*master/);
@@ -2624,7 +2639,7 @@ test("git condition: hidden only on a clean default branch with nothing to push 
 test("the git chip hides on a clean default branch when its condition is saved", async () => {
   await withAgentDir(async (dir) => {
     writeFileSync(path.join(dir, "footer.json"), JSON.stringify({ gitWhen: "unless clean default" }));
-    assert.equal((await (await mount({ porcelain: "" })).settled())[0], "dotfiles gh opus hi 41/1m");
+    assert.equal((await (await mount({ porcelain: "" })).settled())[0], "dotfiles gh sonn hi 41/1m");
     assert.match((await (await mount()).settled())[0], /^dotfiles master\* /, "dirty");
     assert.match((await (await mount({ porcelain: "", revList: "0\t2" })).settled())[0], /^dotfiles master ⇡ /, "ahead");
     assert.match((await (await mount({ porcelain: "", branch: "feature" })).settled())[0], /^dotfiles feature /);
