@@ -12,6 +12,8 @@ import assert from "node:assert/strict";
 import test from "node:test";
 
 import {
+  IDLE_POLL_MS,
+  pollFetches,
   claudeBillingAlarm,
   copilotUsageDisplay,
   effectiveOooDays,
@@ -199,6 +201,13 @@ test("summarizeUsageCache marks fresh, stale, and missing without treating a hol
   assert.equal(row("claude-bridge-window", {
     "claude-bridge-window": { value: "1/5H: 8%", fetchedAt: NOW - 181_000 },
   }).status, "stale");
+  // pi's Anthropic login refetches on every 2-minute poll tick, latency included.
+  assert.equal(row("claude-window", {
+    "claude-window": { value: "1/5H: 8%", fetchedAt: NOW - 109_000 },
+  }).status, "fresh");
+  assert.equal(row("claude-window", {
+    "claude-window": { value: "1/5H: 8%", fetchedAt: NOW - 111_000 },
+  }).status, "stale");
   assert.equal(row("grok-window", { "grok-window": { value: "2/7D: 4%", fetchedAt: "nope" } }).status, "missing");
   assert.equal(row("copilot-window", {}).status, "missing");
   assert.equal(row("copilot-window", {}).value, undefined);
@@ -339,4 +348,13 @@ test("claudeBillingAlarm flags extra-usage billing and the HTTP 400 failure only
   assert.equal(claudeBillingAlarm(200, { [header]: "true" }), "⚠ Claude extra usage");
   assert.equal(claudeBillingAlarm(400, {}), "⚠ Claude HTTP 400");
   assert.equal(claudeBillingAlarm(429, {}), undefined, "rate limits are not a billing failure");
+});
+
+test("pollFetches: poll ticks call provider APIs only mid-run or within 10 minutes of a turn", () => {
+  assert.equal(IDLE_POLL_MS, 600_000);
+  assert.equal(pollFetches(false, undefined, NOW), false, "no turn yet: cache only");
+  assert.equal(pollFetches(true, undefined, NOW), true, "first run in progress");
+  assert.equal(pollFetches(false, NOW - 599_000, NOW), true, "turn 9:59 ago");
+  assert.equal(pollFetches(false, NOW - 600_000, NOW), false, "idle 10 minutes");
+  assert.equal(pollFetches(true, NOW - 3_600_000, NOW), true, "a long run counts however old its start");
 });

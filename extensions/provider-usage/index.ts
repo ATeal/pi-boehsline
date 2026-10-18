@@ -50,6 +50,16 @@ const RATE_LIMIT_COOLDOWN_MS = 180_000;
 // Mid-run refresh: agent_settled never fires during a long run, so a timer
 // covers the 11-minute-stuck case. TTLs still gate actual API fetches.
 const POLL_INTERVAL_MS = 2 * 60 * 1000;
+// A session with no turn for this long stops fetching on poll ticks (every
+// provider): an idle pi left open on a subscription model would otherwise hit
+// the usage APIs around the clock. It still adopts what active sessions write
+// to the shared cache file, and its next turn refreshes right away.
+export const IDLE_POLL_MS = 10 * 60 * 1000;
+
+/** Whether a poll tick may call provider APIs: mid-run, or a turn ended within IDLE_POLL_MS. */
+export function pollFetches(running: boolean, lastTurnMs: number | undefined, nowMs: number): boolean {
+  return running || (lastTurnMs !== undefined && nowMs - lastTurnMs < IDLE_POLL_MS);
+}
 // Shared on-disk cache so N concurrent agents do 1 API fetch, not N.
 // File reads are cheap; API fetches (and the cerebras quota-spending probe)
 // are serialized on the lock dir. Inactive sessions adopt the file value.
@@ -554,6 +564,11 @@ const USAGE_URL_CLAUDE = "https://api.anthropic.com/api/oauth/usage";
 // lands in an aggressively-429'd bucket; ~180s is the community-established
 // safe cadence, so no point polling faster than that.
 const CLAUDE_USAGE_CACHE_TTL_MS = 180_000;
+// pi's own Anthropic login refreshes on the 2-minute poll. fetchedAt is
+// stamped when the response lands, so a TTL of exactly POLL_INTERVAL_MS would
+// still read as cached on the next tick (120s minus the request latency) and
+// slip to every other tick; 110s leaves room for the 10s request timeout.
+const CLAUDE_WINDOW_CACHE_TTL_MS = 110_000;
 const CLAUDE_KEYCHAIN_SERVICE = "Claude Code-credentials";
 const CLAUDE_CREDENTIALS_FILE = join(homedir(), ".claude", ".credentials.json");
 const FIVE_HOURS_SECONDS = 5 * 3_600;
@@ -2168,7 +2183,7 @@ const DRIVERS: Driver[] = [
     id: "claude-window",
     provider: "anthropic",
     statusKey: "claude-window",
-    cacheTtlMs: CLAUDE_USAGE_CACHE_TTL_MS,
+    cacheTtlMs: CLAUDE_WINDOW_CACHE_TTL_MS,
     command: {
       name: "claude-window",
       description: "Refresh the compact Claude subscription usage window",
@@ -2291,7 +2306,7 @@ async function refreshDriver(
   pi: ExtensionAPI,
   ctx: ExtensionContext,
   driver: Driver,
-  options: { force?: boolean; allowInactive?: boolean; surfaceError?: boolean } = {},
+  options: { force?: boolean; allowInactive?: boolean; surfaceError?: boolean; cacheOnly?: boolean } = {},
 ): Promise<UsageDisplay | undefined> {
   const state = stateFor(driver);
   const generation = ++state.generation;
@@ -2312,6 +2327,29 @@ async function refreshDriver(
   const now = Date.now();
   const cached = state.last && ttl > 0 && now - state.lastFetchMs < ttl;
   if (cached && !options.force) return state.last;
+
+  // Idle poll tick: adopt anything newer another session wrote to the shared
+  // file, however old (no TTL: nobody may be fetching), and never call the API.
+  if (options.cacheOnly && !options.force) {
+    const entry = (await readSharedCache())[driver.id];
+    if (!entry || typeof entry.value !== "string" || !Number.isFinite(entry.fetchedAt)) return state.last;
+    if (state.last && entry.fetchedAt <= state.lastFetchMs) return state.last;
+    if (generation !== state.generation) return undefined;
+    const stillActive = safeIsActive(driver, ctx);
+    if (stillActive === undefined || !stillActive) return undefined;
+    const display: UsageDisplay = {
+      value: entry.value,
+      ...(entry.commandText !== undefined ? { commandText: entry.commandText } : {}),
+      ...(entry.resetMs !== undefined ? { resetMs: entry.resetMs } : {}),
+      ...(entry.resetDate !== undefined ? { resetDate: entry.resetDate } : {}),
+    };
+    state.last = display;
+    state.lastFetchMs = entry.fetchedAt;
+    if (driver.stashKey) writeStash(driver, display);
+    if (driver.statusKey && !safeSetStatus(ctx, driver.statusKey, display.value)) return undefined;
+    if (driver.updateEvent) safeEmit(pi, driver.updateEvent);
+    return state.last;
+  }
 
   // Shared file first: another of the N concurrent agents may have fetched
   // fresher data. Cheap read, no API cost, keeps inactive sessions current.
@@ -2572,6 +2610,10 @@ function usageToolResult(text: string, rows: UsageCacheRow[]) {
 export default function providerUsage(pi: ExtensionAPI): void {
   let latestCtx: ExtensionContext | undefined;
   let pollTimer: ReturnType<typeof setInterval> | undefined;
+  // Turn activity for the idle gate (pollFetches): set at agent_start,
+  // cleared at agent_settled, which also stamps the last turn.
+  let running = false;
+  let lastTurnMs: number | undefined;
 
   function refreshAll(ctx: ExtensionContext): void {
     latestCtx = ctx;
@@ -2591,8 +2633,9 @@ export default function providerUsage(pi: ExtensionAPI): void {
     pollTimer = setInterval(() => {
       const ctx = latestCtx;
       if (!ctx) return;
+      const cacheOnly = !pollFetches(running, lastTurnMs, Date.now());
       for (const driver of DRIVERS) {
-        void refreshDriver(pi, ctx, driver).catch(dropBackgroundError(driver.id));
+        void refreshDriver(pi, ctx, driver, { cacheOnly }).catch(dropBackgroundError(driver.id));
       }
     }, POLL_INTERVAL_MS);
     pollTimer.unref?.();
@@ -2626,7 +2669,17 @@ export default function providerUsage(pi: ExtensionAPI): void {
     void refreshDriver(pi, ctx, driver, { force: true }).catch(dropBackgroundError(driver.id));
   });
 
+  pi.on("agent_start", (_event, ctx) => {
+    // Back from idle: the chips may be one stale shared-file value, so
+    // refresh now rather than at the next poll tick or the settle.
+    const wasIdle = !pollFetches(running, lastTurnMs, Date.now());
+    running = true;
+    if (wasIdle) refreshAll(ctx);
+  });
+
   pi.on("agent_settled", (_event, ctx) => {
+    running = false;
+    lastTurnMs = Date.now();
     // Fire-and-forget, unlike the original extensions: a slow billing API
     // (Baseten has 9s stretches) must never hold the settle open. Stale chips
     // keep painting, and stash writes ping the footer via update events.
@@ -2654,6 +2707,8 @@ export default function providerUsage(pi: ExtensionAPI): void {
     // Old instance must stop: its timer's captured ctx is stale after
     // replacement/reload, and the new instance starts its own timer.
     stopPoll();
+    running = false;
+    lastTurnMs = undefined;
     if (claudeAlarm && ctx.hasUI) safeSetStatus(ctx, CLAUDE_BILLING_STATUS, undefined);
     claudeAlarm = undefined;
     for (const driver of DRIVERS) {

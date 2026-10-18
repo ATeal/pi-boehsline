@@ -17,3 +17,5 @@ Usage and quota chips for your providers, shown by the [footer](../footer/README
 Keys come from the environment, then the secret command (`secrets.command` in `boehsline.json`, `fnox get` by default). Reading Safari's cookie store needs Full Disk Access for your terminal; only the one cookie is read.
 
 A chip shows only while you're on that provider. Fetches never block startup or the model picker: each refresh is fire-and-forget, and a late response is discarded if a newer one started. A failed fetch keeps the last value and warns once.
+
+Chips refresh when a session starts, when you switch models, after each turn, and on a 2-minute poll. The poll only calls provider APIs during a run or within 10 minutes of the last turn. An idle session reads the shared cache file instead, picking up whatever an active session fetched, and its next turn refreshes right away.
