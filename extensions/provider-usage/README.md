@@ -18,4 +18,4 @@ Keys come from the environment, then the secret command (`secrets.command` in `b
 
 A chip shows only while you're on that provider. Fetches never block startup or the model picker: each refresh is fire-and-forget, and a late response is discarded if a newer one started. A failed fetch keeps the last value and warns once.
 
-Chips refresh when a session starts, when you switch models, after each turn, and on a 2-minute poll. The poll only calls provider APIs during a run or within 10 minutes of the last turn. An idle session reads the shared cache file instead, picking up whatever an active session fetched, and its next turn refreshes right away.
+Chips refresh when a session starts, when you switch models, after each turn, and on a 2-minute poll. The poll only calls provider APIs during a run or within 10 minutes of the last turn. An idle session reads the shared cache file instead, picking up whatever an active session fetched, and its next turn refreshes right away. After each turn a session also adopts any newer value in the shared file, even while its own copy is still fresh.

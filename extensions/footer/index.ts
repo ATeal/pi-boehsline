@@ -3365,7 +3365,8 @@ export default function footerExtension(pi: ExtensionAPI): void {
             [...header(), ...list.render(width), ...status()].map((line) => truncateToWidth(line, width, "…")),
           invalidate: () => list.invalidate(),
           handleInput: (data: string) => {
-            if (matchesKey(data, Key.alt("s"))) persist();
+            // Alt+Shift+S too (Caps Lock, or tools that can only send ESC S).
+            if (matchesKey(data, Key.alt("s")) || data === "\x1bS") persist();
             else if (data === "J" || matchesKey(data, Key.shift("down"))) move(1);
             else if (data === "K" || matchesKey(data, Key.shift("up"))) move(-1);
             else if (data === "j") list.handleInput("\x1b[B");

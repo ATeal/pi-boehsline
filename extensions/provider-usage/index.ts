@@ -2326,11 +2326,12 @@ async function refreshDriver(
   const ttl = driver.cacheTtlMs ?? 0;
   const now = Date.now();
   const cached = state.last && ttl > 0 && now - state.lastFetchMs < ttl;
-  if (cached && !options.force) return state.last;
 
-  // Idle poll tick: adopt anything newer another session wrote to the shared
-  // file, however old (no TTL: nobody may be fetching), and never call the API.
-  if (options.cacheOnly && !options.force) {
+  // Idle poll tick, or our own copy is still fresh: adopt anything newer
+  // another session wrote to the shared file (a cheap read; no TTL, since
+  // nobody may be fetching), and never call the API. Without this, a settle
+  // inside the memory TTL kept painting the older value.
+  if ((options.cacheOnly || cached) && !options.force) {
     const entry = (await readSharedCache())[driver.id];
     if (!entry || typeof entry.value !== "string" || !Number.isFinite(entry.fetchedAt)) return state.last;
     if (state.last && entry.fetchedAt <= state.lastFetchMs) return state.last;

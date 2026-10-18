@@ -2497,6 +2497,16 @@ async function openChecklist(ui) {
   return list;
 }
 
+test("/footer saves on Alt+Shift+S too (ESC S: Caps Lock, scripted terminals)", async () => {
+  await withAgentDir(async (dir) => {
+    const ui = await mount();
+    const list = await openChecklist(ui);
+    list.handleInput("\r"); // Directory: name → full path
+    list.handleInput("\x1bS");
+    assert.equal(JSON.parse(readFileSync(path.join(dir, "footer.json"), "utf8")).modes.dir, "full path");
+  });
+});
+
 test("/footer lists every chip with its live value and saves toggles to footer.json", async () => {
   await withAgentDir(async (dir) => {
     const ui = await mount();

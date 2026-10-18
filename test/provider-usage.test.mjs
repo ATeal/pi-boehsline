@@ -26,6 +26,10 @@ import {
   resolveUsageDriver,
   summarizeUsageCache,
 } from "../extensions/provider-usage/index.ts";
+import providerUsage from "../extensions/provider-usage/index.ts";
+import { mkdtempSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import path from "node:path";
 
 // Shape of GET /console/api/go/status: microcents are bigints, so they arrive
 // as JSON strings; `month` carries no rolling window of its own.
@@ -357,4 +361,58 @@ test("pollFetches: poll ticks call provider APIs only mid-run or within 10 minut
   assert.equal(pollFetches(false, NOW - 599_000, NOW), true, "turn 9:59 ago");
   assert.equal(pollFetches(false, NOW - 600_000, NOW), false, "idle 10 minutes");
   assert.equal(pollFetches(true, NOW - 3_600_000, NOW), true, "a long run counts however old its start");
+});
+
+test("a settle adopts a newer shared-cache value even while the memory copy is fresh", async () => {
+  const dir = mkdtempSync(path.join(tmpdir(), "usage-adopt-"));
+  const previous = process.env.PI_CODING_AGENT_DIR;
+  process.env.PI_CODING_AGENT_DIR = dir;
+  const write = (value, fetchedAt) =>
+    writeFileSync(path.join(dir, "usage-cache.json"), JSON.stringify({ "claude-window": { value, fetchedAt } }));
+  const handlers = new Map();
+  const pi = {
+    on: (name, handler) => handlers.set(name, [...(handlers.get(name) ?? []), handler]),
+    events: { on() {}, emit() {} },
+    registerCommand() {},
+    registerTool() {},
+    getActiveTools: () => [],
+    getAllTools: () => [],
+    setActiveTools() {},
+    exec: async () => ({ stdout: "", stderr: "", code: 1, killed: false }),
+  };
+  const statuses = new Map();
+  const ctx = {
+    hasUI: true,
+    cwd: dir,
+    model: { provider: "anthropic", id: "claude-opus-5-5" },
+    modelRegistry: { isUsingOAuth: () => true },
+    ui: { setStatus: (key, value) => statuses.set(key, value), notify() {} },
+  };
+  const fire = async (name) => {
+    for (const handler of handlers.get(name) ?? []) await handler({}, ctx);
+  };
+  const settle = () => new Promise((resolve) => setTimeout(resolve, 50));
+  try {
+    const now = Date.now();
+    write("2.5/5H: 50% 3.5/7D: 50%", now);
+    providerUsage(pi);
+    await fire("session_start");
+    await settle();
+    assert.equal(statuses.get("claude-window"), "2.5/5H: 50% 3.5/7D: 50%");
+
+    // Another session fetched newer data seconds later, inside the 110s memory TTL.
+    write("2.5/5H: 12% 3.5/7D: 18%", now + 5_000);
+    await fire("agent_settled");
+    await settle();
+    assert.equal(statuses.get("claude-window"), "2.5/5H: 12% 3.5/7D: 18%", "adopted at the settle");
+
+    write("2.5/5H: 99% 3.5/7D: 99%", now + 1_000); // older than what we have: ignored
+    await fire("agent_settled");
+    await settle();
+    assert.equal(statuses.get("claude-window"), "2.5/5H: 12% 3.5/7D: 18%");
+  } finally {
+    await fire("session_shutdown");
+    if (previous === undefined) delete process.env.PI_CODING_AGENT_DIR;
+    else process.env.PI_CODING_AGENT_DIR = previous;
+  }
 });
