@@ -591,6 +591,7 @@ test("provider aliases", async () => {
     ["xai", "x"],
     ["baseten", "b10"],
     ["cerebras", "cb"],
+    ["anthropic", "a"],
     ["omlx", "omlx"],
   ];
   for (const [provider, expected] of cases) {
@@ -642,6 +643,9 @@ test("provider-specific model aliases are pinned to exact releases", async () =>
     [{ id: "claude-opus-5.5", provider: "github-copilot", reasoning: true }, "opus"],
     [{ id: "claude-opus-5", provider: "github-copilot", reasoning: true }, "opus-5"],
     [{ id: "claude-opus-6", provider: "github-copilot", reasoning: true }, "opus-6"],
+    [{ id: "claude-opus-5-5", provider: "anthropic", reasoning: true }, "opus"],
+    [{ id: "claude-opus-5", provider: "anthropic", reasoning: true }, "opus-5"],
+    [{ id: "claude-opus-6", provider: "anthropic", reasoning: true }, "opus-6"],
     [{ id: "claude-sonnet-5.5", provider: "github-copilot", reasoning: true }, "sonn"],
     [{ id: "claude-sonnet-5", provider: "github-copilot", reasoning: true }, "sonnet-5"],
     [{ id: "anthropic/claude-sonnet-5.5", provider: "openrouter", reasoning: true }, "anthropic/claude-sonnet-5.5"],
@@ -810,6 +814,15 @@ test("cost formatting and subscription providers", async () => {
   });
   assert.doesNotMatch(xaiOAuth.plain()[0], /\$/, "SuperGrok OAuth hides cost");
 
+  const anthropicKey = await mount({ model: { id: "claude-opus-5-5", provider: "anthropic", reasoning: true } });
+  assert.match(anthropicKey.plain()[0], /\$/, "Anthropic API keys still have a dollar cost");
+
+  const anthropicOAuth = await mount({
+    model: { id: "claude-opus-5-5", provider: "anthropic", reasoning: true },
+    usingOAuth: true,
+  });
+  assert.doesNotMatch(anthropicOAuth.plain()[0], /\$/, "Claude Pro/Max OAuth hides cost");
+
   // Free preview on a paid provider: the model, not the provider, hides cost.
   const freePreview = await mount({
     model: { id: "space-bunny-free", provider: "opencode", reasoning: true },
@@ -850,7 +863,7 @@ test("usage chips color by pace in compact and long forms", async () => {
     const escaped = target.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
     return new RegExp(`\x1B\\[([0-9;]+)m${escaped}\x1B\\[39m`).exec(ui.raw()[0])?.[1];
   };
-  for (const key of ["codex-window", "copilot-window", "grok-window", "cerebras-window", "claude-bridge-window"]) {
+  for (const key of ["codex-window", "copilot-window", "grok-window", "cerebras-window", "claude-bridge-window", "claude-window"]) {
     for (const form of ["compact", "long"]) {
       // 2.1/7D is 30% elapsed: color follows points ahead of pace.
       assert.equal(await shade(key, "2.1/7D: 18%", form), "90", `${key} ${form} gray when behind pace`);

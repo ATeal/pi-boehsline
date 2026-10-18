@@ -100,7 +100,7 @@ const AUTO_BUNDLE_LOCK = "pi-bundle.lock";
 const AUTO_BUNDLE_LOCK_STALE_MIN = 10;
 
 /** Statuses rendered inline in the main line (in this order) instead of the status row. */
-const INLINE_STATUS_KEYS = ["codex-window", "copilot-window", "grok-window", "cerebras-window", "claude-bridge-window", "opencode-go-window"] as const;
+const INLINE_STATUS_KEYS = ["codex-window", "copilot-window", "grok-window", "cerebras-window", "claude-bridge-window", "claude-window", "opencode-go-window"] as const;
 
 /** provider-usage listens: { days, setAt } from the /footer OOO row (same string there). */
 const FOOTER_COPILOT_OOO_EVENT = "footer:copilot-ooo";
@@ -785,12 +785,12 @@ function routePrefix(provider: string | undefined, modelId: string | undefined):
   return slug ? `${slug}/` : "";
 }
 
-/** SuperGrok OAuth is subscription-billed; an xAI API key still has a real dollar cost. */
+/** Subscription OAuth (SuperGrok, Claude Pro/Max) is plan-billed; an xAI or Anthropic API key still has a real dollar cost. */
 function hideSessionCost(provider: string | undefined, ctx: ExtensionContext): boolean {
   if (!provider) return false;
   if (HIDE_COST_PROVIDERS.has(provider)) return true;
   if (ctx.model && HIDE_COST_MODELS.has(ctx.model.id)) return true;
-  return provider === "xai" && ctx.model != null && ctx.modelRegistry.isUsingOAuth(ctx.model);
+  return (provider === "xai" || provider === "anthropic") && ctx.model != null && ctx.modelRegistry.isUsingOAuth(ctx.model);
 }
 
 const CONTEXT_WARNING_PERCENT = 70;
@@ -826,6 +826,7 @@ const PROVIDER_NAMES: Record<string, string> = {
   baseten: "b10",
   cerebras: "cb",
   "claude-bridge": "c",
+  anthropic: "a",
 };
 
 /** Short names for thinking levels (pi: off|minimal|low|medium|high|xhigh|max). */
@@ -1216,6 +1217,7 @@ function shortModel(model: string | undefined, provider?: string): string {
     if (family) return family;
   }
   if (provider === "github-copilot" && /^claude-opus-5\.5$/i.test(base)) return "opus";
+  if (provider === "anthropic" && /^claude-opus-5-5$/i.test(base)) return "opus";
   if (provider === "github-copilot" && /^claude-sonnet-5\.5$/i.test(base)) return "sonn";
   for (const [pattern, replacement] of MODEL_RULES) {
     // Aliased ids render lowercase; unknown ids pass through with their original casing.

@@ -12,6 +12,7 @@ import assert from "node:assert/strict";
 import test from "node:test";
 
 import {
+  claudeBillingAlarm,
   copilotUsageDisplay,
   effectiveOooDays,
   workdaysBetween,
@@ -179,7 +180,7 @@ test("summarizeUsageCache marks fresh, stale, and missing without treating a hol
     "grok-window": { value: "2/7D: 4%", fetchedAt: "nope" },
   }, NOW);
 
-  assert.equal(rows.length, 9);
+  assert.equal(rows.length, 10);
   assert.equal(row("ollama-usage", {
     "ollama-usage": { value: "$1 / $60 (2%)", commandText: "Included (pro): $1 of $60", fetchedAt: NOW - 30_000 },
   }).status, "fresh");
@@ -310,7 +311,9 @@ test("resolveUsageDriver accepts ids and the short names a model will pass", () 
   assert.equal(resolveUsageDriver("xai")?.id, "grok-window");
   assert.equal(resolveUsageDriver("copilot")?.provider, "github-copilot");
   assert.equal(resolveUsageDriver("ollama-usage")?.provider, "ollama");
-  assert.equal(resolveUsageDriver("claude")?.id, "claude-bridge-window");
+  assert.equal(resolveUsageDriver("claude")?.id, "claude-window");
+  assert.equal(resolveUsageDriver("anthropic")?.id, "claude-window");
+  assert.equal(resolveUsageDriver("claude-bridge")?.id, "claude-bridge-window");
   assert.equal(resolveUsageDriver(""), undefined);
   assert.equal(resolveUsageDriver("nope"), undefined);
 });
@@ -327,4 +330,13 @@ test("formatUsageCacheReport is one block per driver and prefers commandText", (
       commandText: "Included (pro): $1 of $60",
     },
   ]), "xai missing\nollama fresh 45s\nIncluded (pro): $1 of $60");
+});
+
+test("claudeBillingAlarm flags extra-usage billing and the HTTP 400 failure only", () => {
+  const header = "anthropic-ratelimit-unified-overage-in-use";
+  assert.equal(claudeBillingAlarm(200, { [header]: "false" }), undefined);
+  assert.equal(claudeBillingAlarm(200, {}), undefined, "no header is plan billing");
+  assert.equal(claudeBillingAlarm(200, { [header]: "true" }), "⚠ Claude extra usage");
+  assert.equal(claudeBillingAlarm(400, {}), "⚠ Claude HTTP 400");
+  assert.equal(claudeBillingAlarm(429, {}), undefined, "rate limits are not a billing failure");
 });

@@ -1,6 +1,6 @@
 /**
  * All usage/quota chips in one extension: codex, copilot, grok,
- * claude-bridge, cerebras, opencode-go (status-line windows) and baseten, openrouter,
+ * claude-bridge, claude (pi's Anthropic OAuth), cerebras, opencode-go (status-line windows) and baseten, openrouter,
  * ollama (cost-slot chips).
  *
  * Each provider is a Driver: a provider gate, a fetch, and a display mode.
@@ -667,7 +667,37 @@ async function fetchClaudeBridge(_ctx: ExtensionContext): Promise<UsageDisplay> 
       "no Claude Code OAuth credential (Keychain, ~/.claude/.credentials.json, or CLAUDE_CODE_OAUTH_TOKEN)",
     );
   }
+  return fetchClaudeUsage(
+    token,
+    "Claude Code OAuth token expired — run `claude` briefly (it refreshes on use) and retry",
+  );
+}
 
+/** pi's own Anthropic subscription login (`/login` → Anthropic → OAuth). pi
+ *  refreshes the access token itself, so a 401 means the login is gone. */
+async function fetchClaudeSubscription(ctx: ExtensionContext): Promise<UsageDisplay> {
+  const token = await providerApiKey(ctx, "anthropic");
+  if (!token) throw new Error("no Anthropic OAuth login in pi — run /login");
+  return fetchClaudeUsage(token, "Anthropic OAuth token rejected — run /login again");
+}
+
+/** pi-claude-subscription-connector loads without its usage-status.ts (it
+ *  polled the same endpoint as claude-window), so its billing alarm lives
+ *  here: Anthropic reports per response whether the request drew from extra
+ *  usage instead of the plan. */
+const CLAUDE_OVERAGE_HEADER = "anthropic-ratelimit-unified-overage-in-use";
+export const CLAUDE_BILLING_STATUS = "claude-billing";
+
+/** The footer's statuses-row text for one Anthropic OAuth response, or
+ *  undefined when it was billed to the plan. */
+export function claudeBillingAlarm(status: number, headers: Record<string, string | undefined>): string | undefined {
+  if (headers[CLAUDE_OVERAGE_HEADER] === "true") return "⚠ Claude extra usage";
+  // The "out of extra usage" failure: the payload didn't pass as a plan request.
+  if (status === 400) return "⚠ Claude HTTP 400";
+  return undefined;
+}
+
+async function fetchClaudeUsage(token: string, expiredMessage: string): Promise<UsageDisplay> {
   let usage: ClaudeUsageResponse;
   try {
     usage = (await fetchJson(USAGE_URL_CLAUDE, {
@@ -679,9 +709,7 @@ async function fetchClaudeBridge(_ctx: ExtensionContext): Promise<UsageDisplay> 
     })) as ClaudeUsageResponse;
   } catch (err) {
     if (err instanceof Error && err.message.includes("(401)")) {
-      throw new Error(
-        "Claude Code OAuth token expired — run `claude` briefly (it refreshes on use) and retry",
-      );
+      throw new Error(expiredMessage);
     }
     if (err instanceof Error && isRateLimitError(err)) {
       throw new Error(
@@ -2137,6 +2165,21 @@ const DRIVERS: Driver[] = [
     fetch: fetchClaudeBridge,
   },
   {
+    id: "claude-window",
+    provider: "anthropic",
+    statusKey: "claude-window",
+    cacheTtlMs: CLAUDE_USAGE_CACHE_TTL_MS,
+    command: {
+      name: "claude-window",
+      description: "Refresh the compact Claude subscription usage window",
+      scopeNote: "Claude usage is only shown for Anthropic subscription (OAuth) models",
+    },
+    // Subscription OAuth only: an Anthropic API key is pay-per-token.
+    isActive: (ctx) =>
+      ctx.model?.provider === "anthropic" && ctx.modelRegistry.isUsingOAuth(ctx.model),
+    fetch: fetchClaudeSubscription,
+  },
+  {
     id: "copilot-window",
     provider: "github-copilot",
     statusKey: "copilot-window",
@@ -2505,7 +2548,7 @@ export function formatUsageCacheReport(rows: UsageCacheRow[]): string {
 const USAGE_PROVIDER_ALIASES: Record<string, string> = {
   openai: "openai-codex",
   codex: "openai-codex",
-  claude: "claude-bridge",
+  claude: "anthropic",
   copilot: "github-copilot",
   grok: "xai",
   supergrok: "xai",
@@ -2590,10 +2633,29 @@ export default function providerUsage(pi: ExtensionAPI): void {
     refreshAll(ctx);
   });
 
+  let claudeAlarm: string | undefined;
+  pi.on("after_provider_response", (event, ctx) => {
+    if (!ctx.hasUI || ctx.model?.provider !== "anthropic" || !ctx.modelRegistry.isUsingOAuth(ctx.model)) return;
+    const alarm = claudeBillingAlarm(event.status, event.headers);
+    if (alarm === claudeAlarm) return;
+    if (alarm) {
+      ctx.ui.notify(
+        alarm.includes("extra usage")
+          ? "Claude request was billed to EXTRA USAGE, not your subscription — the connector's payload normalization may be broken."
+          : "Claude request failed (HTTP 400). If this repeats, subscription billing may be broken.",
+        alarm.includes("extra usage") ? "warning" : "error",
+      );
+    }
+    claudeAlarm = alarm;
+    safeSetStatus(ctx, CLAUDE_BILLING_STATUS, alarm ? `\x1b[31m${alarm}\x1b[39m` : undefined);
+  });
+
   pi.on("session_shutdown", async (_event, ctx) => {
     // Old instance must stop: its timer's captured ctx is stale after
     // replacement/reload, and the new instance starts its own timer.
     stopPoll();
+    if (claudeAlarm && ctx.hasUI) safeSetStatus(ctx, CLAUDE_BILLING_STATUS, undefined);
+    claudeAlarm = undefined;
     for (const driver of DRIVERS) {
       const state = stateFor(driver);
       state.generation += 1;

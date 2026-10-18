@@ -7,6 +7,7 @@ Usage and quota chips for your providers, shown by the [footer](../footer/README
 | openai-codex | rate-limit windows | pi's own login |
 | github-copilot | premium request allowance and pace | pi's own login |
 | xai (grok) | rate-limit windows | pi's own login |
+| anthropic (Claude Pro/Max) | 5h and weekly windows; the footer hides the $ estimate | pi's own OAuth login (`/login` → Anthropic) |
 | cerebras | rate-limit windows | `CEREBRAS_API_KEY` |
 | opencode-go | usage windows | `OPENCODE_SESSION_COOKIE` + `OPENCODE_WORKSPACE_ID`, or Safari's cookies |
 | ollama | usage | `OLLAMA_SESSION_COOKIE`, or Safari's cookies |
