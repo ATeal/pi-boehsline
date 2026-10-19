@@ -20,7 +20,7 @@ import { createServer } from "node:http";
 import { homedir, tmpdir } from "node:os";
 import { basename, dirname, extname, join, resolve, sep } from "node:path";
 import { fileURLToPath } from "node:url";
-import { systemTheme } from "./theme.mjs";
+import { systemTheme, themeDefault } from "./theme.mjs";
 
 const HERE = dirname(fileURLToPath(import.meta.url));
 
@@ -33,6 +33,8 @@ export const PORT = Number(arg("port", process.env.PI_CANVAS_PORT || "8790"));
 export const ROOT = resolve(arg("root", process.env.PI_CANVAS_ROOT || join(homedir(), ".pi", "canvas")));
 // Where Omarchy keeps the applied theme (theme/colors.toml + theme.name).
 export const OMARCHY = resolve(arg("omarchy", process.env.PI_CANVAS_OMARCHY || join(homedir(), ".local", "state", "omarchy", "current")));
+// The theme a browser starts on before anything is picked: "system" follows Omarchy.
+export const THEME_DEFAULT = themeDefault(arg("theme", process.env.PI_CANVAS_THEME));
 /** agent-link's registry (shared with Claude Code): one <pid>.json per live agent. */
 export const PEERS = resolve(arg("peers", process.env.PI_CANVAS_PEERS || join(homedir(), ".claude", "sessions")));
 /** provider-usage.ts's shared cache: one entry per usage driver, for the info panel. */
@@ -421,7 +423,7 @@ const SHELL = `<!doctype html>
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Canvas</title>
 <link rel="icon" href="data:,">
-<script src="/assets/theme-boot.js"></script>
+${THEME_DEFAULT ? `<meta name="canvas-theme-default" content="${THEME_DEFAULT}">\n` : ""}<script src="/assets/theme-boot.js"></script>
 <script src="/assets/vendor/marked.js" defer></script>
 <script src="/assets/vendor/purify.js" defer></script>
 <script src="/assets/page.mjs" type="module"></script>
