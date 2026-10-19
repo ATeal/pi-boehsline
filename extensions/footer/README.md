@@ -78,6 +78,9 @@ ignores it). `/footer` keeps it when it saves:
 In a linked git worktree, the Worktree chip after it names the main repository
 (`eert-feature ⎇ eert`); it's hidden in a main checkout. It reads the `.git`
 file and `commondir` rather than running git, so a submodule doesn't count.
+When the worktree's directory has the branch's name, the directory chip drops
+out so the name shows once: `⎇ eert feature` rather than
+`feature ⎇ eert feature`.
 
 Settings that belong to a chip sit indented under it: Git condition, Context
 threshold, Copilot OOO days, and a condition each for Provider, Model and

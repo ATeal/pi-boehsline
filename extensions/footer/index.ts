@@ -2551,6 +2551,17 @@ export default function footerExtension(pi: ExtensionAPI): void {
         }
         const showBoot = bootMs !== undefined && !bootCleared;
 
+        // A worktree is usually named for its branch: "wt-invoice ⎇ acme-api wt-invoice"
+        // says it twice. Drop the directory then; ⎇ still marks the worktree and
+        // the git chip (with its dirty and ahead marks) names it once.
+        const repoOfWorktree = worktreeRepo(ctx.cwd);
+        const dirChipShown = !(
+          repoOfWorktree &&
+          !showFullPath &&
+          gitChip.text &&
+          branch &&
+          dirLabel(ctx.cwd, false, shown().dirNames) === branch
+        );
         const hideAsDefault = (chip: "provider" | "model" | "thinking") =>
           defaultChipHidden(
             chip,
@@ -2559,8 +2570,8 @@ export default function footerExtension(pi: ExtensionAPI): void {
             chipDefaults,
           );
         const chips: Array<readonly [Exclude<FooterChipId, "name" | "statuses">, string]> = [
-          ["dir", color(BLUE, dirLabel(ctx.cwd, showFullPath, shown().dirNames))],
-          ["worktree", ((repo) => (repo ? color(BLUE, `⎇ ${repo}`) : ""))(worktreeRepo(ctx.cwd))],
+          ["dir", dirChipShown ? color(BLUE, dirLabel(ctx.cwd, showFullPath, shown().dirNames)) : ""],
+          ["worktree", repoOfWorktree ? color(BLUE, `⎇ ${repoOfWorktree}`) : ""],
           ["git", gitChip.text],
           [
             "provider",

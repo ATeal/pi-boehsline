@@ -105,7 +105,7 @@ async function mount(overrides = {}) {
   const ctx = {
     hasUI: true,
     mode: overrides.mode,
-    cwd: "/Users/someone/Code/github.com/someone/dotfiles",
+    cwd: overrides.cwd ?? "/Users/someone/Code/github.com/someone/dotfiles",
     model,
     getContextUsage: () => contextUsage,
     modelRegistry: {
@@ -960,6 +960,25 @@ test("the worktree chip names the main repo in a linked worktree, and nothing el
   mkdirSync(path.join(main, "lib"));
   writeFileSync(path.join(main, "lib", ".git"), "gitdir: ../.git/modules/lib\n");
   assert.equal(worktreeRepo(path.join(main, "lib")), undefined, "a submodule is not a worktree");
+});
+
+test("a worktree named for its branch says the name once", async () => {
+  const { execFileSync } = await import("node:child_process");
+  const root = realpathSync(mkdtempSync(path.join(tmpdir(), "footer-wtname-")));
+  const git = (cwd, ...args) => execFileSync("git", args, { cwd, stdio: "ignore", env: { ...process.env, GIT_CONFIG_GLOBAL: "/dev/null" } });
+  const main = path.join(root, "eert");
+  mkdirSync(main);
+  git(main, "init", "-q");
+  git(main, "-c", "user.name=t", "-c", "user.email=t@t", "commit", "-q", "--allow-empty", "-m", "init");
+  git(main, "worktree", "add", "-q", path.join(root, "feature"), "-b", "feature");
+  git(main, "worktree", "add", "-q", path.join(root, "eert-other"), "-b", "other");
+
+  const same = await mount({ cwd: path.join(root, "feature"), branch: "feature", porcelain: "" });
+  assert.match((await same.settled())[0], /^⎇ eert feature /, "directory dropped: the branch names it");
+  const differs = await mount({ cwd: path.join(root, "eert-other"), branch: "other", porcelain: "" });
+  assert.match((await differs.settled())[0], /^eert-other ⎇ eert other /, "a different directory stays");
+  const mainCheckout = await mount({ cwd: main, branch: "eert", porcelain: "" });
+  assert.match((await mainCheckout.settled())[0], /^eert eert /, "only in a linked worktree");
 });
 
 test("a chip added since footer.json was saved lands after its default predecessor", () => {
