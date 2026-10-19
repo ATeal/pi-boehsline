@@ -2,7 +2,7 @@
 // Re-fetches state on each server-sent "changed" event and re-renders only the
 // sections whose timestamp moved, so iframes and scroll position survive.
 
-import { readPair, prettyName, swatch, themeMode, themeVars } from "/assets/theme.mjs";
+import { readPair, readPrefs, prettyName, swatch, themeMode, themeVars } from "/assets/theme.mjs";
 import { asQuote, boardMarks, buildTree, codeLayout, dismissPipe, lineLabel, optionLetter, optionPrompt, optionsText, pipeRows, pipeStripHidden, REVIEW_VERDICTS, reviewLabel, reviewMessage, infoRows, slackText, treeText, wrapLabel, cardKey, cardPrompt, inlineTokens, matchKeys, mergeOrder, moveAmong, nextSeen, orderSessions, ownerSession, placeBefore, rankItems, splitPinned, togglePin, topQuotes, unquote, VIM_KEYS, waitingSessions } from "/assets/nav.mjs";
 
 const CSS = `
@@ -4973,13 +4973,15 @@ function themeCache() {
   }
 }
 const themePair = () => readPair(localStorage.getItem("canvas:theme"));
+// PI_CANVAS_THEME, from the daemon: what to use until a theme is picked here.
+const THEME_DEFAULT = document.querySelector('meta[name="canvas-theme-default"]')?.content || "";
 /** The pair plus `system`: follow the OS theme (Omarchy) in both modes instead. */
 function themePrefs() {
-  let system = false;
+  let raw = null;
   try {
-    system = JSON.parse(localStorage.getItem("canvas:theme") || "null")?.system === true;
+    raw = localStorage.getItem("canvas:theme");
   } catch {}
-  return { ...themePair(), system };
+  return readPrefs(raw, THEME_DEFAULT);
 }
 let systemReady = null;
 /** The applied Omarchy theme from the daemon, { name, colors }, or null. */

@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import { test } from "node:test";
 import { asQuote, boardMarks, boardMoves, boardSnapshot, cardPrompt, dismissPipe, pipeStripHidden, slackText, fuzzyScore, inlineTokens, matchKeys, mergeOrder, moveAmong, nextSeen, orderSessions, ownerSession, pipeRows, placeBefore, rankItems, splitPinned, togglePin, topQuotes, unquote, VIM_KEYS, waitingSessions, wrapLabel, buildTree, codeLayout, lineLabel, optionPrompt, optionsText, treeText, fenceFor, reviewLabel, reviewMessage, fmtBytes, fmtCount, gitSummary, infoRows, uniichatSummary } from "../extensions/canvas/nav.mjs";
-import { mix, prettyName, readPair, swatch, systemTheme, themeMode, themeVars } from "../extensions/canvas/theme.mjs";
+import { mix, prettyName, readPair, readPrefs, swatch, systemTheme, themeDefault, themeMode, themeVars } from "../extensions/canvas/theme.mjs";
 import { parseColors } from "../extensions/canvas/build-themes.mjs";
 
 const THEMES = JSON.parse(readFileSync(new URL("../extensions/canvas/themes.json", import.meta.url), "utf8")).themes;
@@ -57,6 +57,22 @@ test("readPair keeps known themes in the right slot and falls back to canvas", (
   assert.deepEqual(readPair("{broken"), { dark: "canvas", light: "canvas" });
   assert.deepEqual(readPair({ dark: "tokyo-night", light: "flexoki-light" }, THEMES), { dark: "tokyo-night", light: "flexoki-light" });
   assert.deepEqual(readPair({ dark: "flexoki-light", light: "gone-theme" }, THEMES), { dark: "canvas", light: "canvas" }, "a light theme can't sit in the dark slot");
+});
+
+test("themeDefault takes system and ignores the rest", () => {
+  assert.equal(themeDefault("system"), "system");
+  assert.equal(themeDefault(" System\n"), "system");
+  for (const v of [undefined, null, "", "tokyo-night", "systems", "1"]) assert.equal(themeDefault(v), "", String(v));
+});
+
+test("readPrefs: the daemon default only applies until a theme is picked", () => {
+  const canvas = { dark: "canvas", light: "canvas" };
+  assert.deepEqual(readPrefs(null), { ...canvas, system: false });
+  assert.deepEqual(readPrefs(null, "system"), { ...canvas, system: true }, "nothing stored: follow Omarchy");
+  const picked = JSON.stringify({ dark: "tokyo-night", light: "flexoki-light", system: false });
+  assert.deepEqual(readPrefs(picked, "system"), { dark: "tokyo-night", light: "flexoki-light", system: false }, "a picked pair wins");
+  assert.deepEqual(readPrefs(JSON.stringify({ ...canvas, system: true }), ""), { ...canvas, system: true }, "picked Omarchy (system) without the default");
+  assert.deepEqual(readPrefs("{broken", "system"), { ...canvas, system: false }, "something stored, even unreadable, is a choice");
 });
 
 test("parseColors reads Omarchy's flat colors.toml", () => {

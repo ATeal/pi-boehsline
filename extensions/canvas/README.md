@@ -421,7 +421,10 @@ the agent's last response.
   theme folder is replaced on each switch), and sends open pages a
   `system-theme` event. No Omarchy hook is needed, and picking any named theme
   stops following. It reads the machine pi runs on, so a canvas on a laptop
-  can't follow a separate Omarchy box.
+  can't follow a separate Omarchy box. `PI_CANVAS_THEME=system` makes Omarchy
+  (system) the default for any browser that hasn't picked a theme yet, so a
+  new profile or a dotfiles setup follows it without the picker. A theme
+  picked on the page still wins. The daemon reads it when it starts.
 - **Opening it.** Safari never opens by itself. `/canvas` opens this session's
   page on display 1, left half, or focuses the tab if it is already open.
   `/canvas url` prints the address, `/canvas status` forces a status run, and
@@ -457,7 +460,8 @@ keeps per section, so a plan's answers survive a reload. Other local processes a
 anything the session saw; it is not a redaction layer.
 
 `PI_CANVAS=0` disables everything, `PI_CANVAS_STATUS=0` keeps the tool without
-status runs, `PI_CANVAS_TMUX=0` turns off tmux follow mode, and
+status runs, `PI_CANVAS_TMUX=0` turns off tmux follow mode,
+`PI_CANVAS_THEME=system` follows Omarchy until a theme is picked, and
 `PI_CANVAS_MODEL=provider/id` changes the status model.
 Subagent children skip the canvas.
 

@@ -136,3 +136,22 @@ export function readPair(raw, themes) {
   const ok = (n, mode) => n === "canvas" || (themes ? themes[n] && themeMode(themes[n]) === mode : typeof n === "string");
   return { dark: ok(p.dark, "dark") ? p.dark : "canvas", light: ok(p.light, "light") ? p.light : "canvas" };
 }
+
+/**
+ * PI_CANVAS_THEME as the daemon serves it: "system" (follow Omarchy until a
+ * theme is picked) or "" (the canvas default). Anything else is ignored.
+ */
+export const themeDefault = (raw) => (String(raw ?? "").trim().toLowerCase() === "system" ? "system" : "");
+
+/**
+ * The stored prefs (the pair plus `system`). With nothing stored yet, the
+ * daemon's default decides `system`; a choice made in the picker always wins.
+ */
+export function readPrefs(raw, fallback = "") {
+  if (raw == null) return { ...DEFAULT_PAIR, system: fallback === "system" };
+  let system = false;
+  try {
+    system = JSON.parse(raw)?.system === true;
+  } catch {}
+  return { ...readPair(raw), system };
+}

@@ -1343,6 +1343,29 @@ test("daemon follows the Omarchy theme: serves it, and tells pages when it switc
   }
 });
 
+test("PI_CANVAS_THEME=system puts the default in the page shell; unset leaves it out", async () => {
+  const { root } = tempRoot();
+  const daemon = fileURLToPath(new URL("../extensions/canvas/daemon.mjs", import.meta.url));
+  const shell = async (theme) => {
+    const port = 20790 + Math.floor(Math.random() * 1000);
+    const env = { ...process.env, PI_CANVAS_THEME: theme };
+    const child = spawn(process.execPath, [daemon, "--port", String(port), "--root", root, "--omarchy", join(root, "none"), "--version", "t4"], { stdio: "ignore", env });
+    try {
+      for (let i = 0; i < 50 && !(await get(port, "/health").catch(() => undefined)); i++) await new Promise((r) => setTimeout(r, 100));
+      return (await get(port, "/")).body;
+    } finally {
+      child.kill();
+    }
+  };
+  try {
+    assert.match(await shell("system"), /<meta name="canvas-theme-default" content="system">\n<script src="\/assets\/theme-boot\.js">/);
+    assert.doesNotMatch(await shell(""), /canvas-theme-default/);
+    assert.doesNotMatch(await shell("<script>"), /canvas-theme-default|<script>"/, "only system is served");
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
 test("sessionInfo: model, thinking only for reasoning models, context, prompts, replies and cost", () => {
   const branch = [
     { type: "message", message: { role: "user", content: "a" } },
