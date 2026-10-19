@@ -2,6 +2,8 @@
 
 > The baseline for [pi](https://pi.dev). *(Say "bays-line.")*
 
+https://github.com/user-attachments/assets/2f726e72-28ee-4ffe-a9ba-221c91432414
+
 Boehsline is Eric Boehs's pi setup, packaged so anyone can install it: more than 30 extensions in one package, plus the skills that come with agent-link. Most extensions are on by default; the ones that only make sense with particular tools or habits are opt-in.
 
 **Status:** early. The contents are still moving in from separate repos.
