@@ -969,15 +969,21 @@ function readJson<T>(path: string, fallback: T): T {
 
 // ── daemon ───────────────────────────────────────────────────────────────────
 
-/** Hash of the daemon and page code on disk, so every pi agrees on one version. */
-function daemonVersion(): string {
+/**
+ * Hash of the daemon and page code on disk, so every pi agrees on one version.
+ * PI_CANVAS_THEME is read once at daemon start, so it's part of the version:
+ * setting it while a daemon runs restarts that daemon on the next canvas write
+ * instead of waiting for a code change. (Same parse as theme.mjs themeDefault.)
+ */
+export function daemonVersion(env: Record<string, string | undefined> = process.env): string {
   const h = createHash("sha1");
   for (const f of [DAEMON, PAGE]) {
     try {
       h.update(readFileSync(f));
     } catch {}
   }
-  return h.digest("hex").slice(0, 12);
+  const theme = String(env.PI_CANVAS_THEME ?? "").trim().toLowerCase() === "system" ? "+theme=system" : "";
+  return h.digest("hex").slice(0, 12) + theme;
 }
 
 async function health(): Promise<{ version?: string; pid?: number } | undefined> {

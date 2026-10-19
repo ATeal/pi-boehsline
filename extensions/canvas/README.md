@@ -424,7 +424,8 @@ the agent's last response.
   can't follow a separate Omarchy box. `PI_CANVAS_THEME=system` makes Omarchy
   (system) the default for any browser that hasn't picked a theme yet, so a
   new profile or a dotfiles setup follows it without the picker. A theme
-  picked on the page still wins. The daemon reads it when it starts.
+  picked on the page still wins. The daemon reads it when it starts; a pi
+  with a different value restarts the daemon on its next canvas write.
 - **Opening it.** Safari never opens by itself. `/canvas` opens this session's
   page on display 1, left half, or focuses the tab if it is already open.
   `/canvas url` prints the address, `/canvas status` forces a status run, and

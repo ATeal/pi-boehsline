@@ -14,7 +14,7 @@ import { join } from "node:path";
 import test from "node:test";
 import { fileURLToPath } from "node:url";
 
-import canvasExtension, { ActivityTracker, STATUS_PROMPT, checkChart, compareOptions, normalizeSpec, parseDelimited, diffSkipReason, fileId, filesMarkdown, syncCopies, gitDiff, isSensitivePath, jobsSpec, logTail, looksLikeDiff, makePatch, findingLine, findingTexts, isSectionId, newFindings, parseExtras, shotsMarkdown, agentTraffic, agentsMarkdown, bashExit, runSpec, streamable, tailLines, readPeers, resolvePeerName, tallyFiles, lastReply, sessionInfo, uniichatInfo, lastTurn, normalizeCode, normalizeOptions, normalizeTree, parseLineRange, nextSteps, claimInbox, ackInbox, withoutNextSteps, leftHalfBounds, openTodos, parseStatus, tmuxMeta, todoBoard, turnDigest, upsertSection, worthStatus } from "../extensions/canvas/index.ts";
+import canvasExtension, { ActivityTracker, daemonVersion, STATUS_PROMPT, checkChart, compareOptions, normalizeSpec, parseDelimited, diffSkipReason, fileId, filesMarkdown, syncCopies, gitDiff, isSensitivePath, jobsSpec, logTail, looksLikeDiff, makePatch, findingLine, findingTexts, isSectionId, newFindings, parseExtras, shotsMarkdown, agentTraffic, agentsMarkdown, bashExit, runSpec, streamable, tailLines, readPeers, resolvePeerName, tallyFiles, lastReply, sessionInfo, uniichatInfo, lastTurn, normalizeCode, normalizeOptions, normalizeTree, parseLineRange, nextSteps, claimInbox, ackInbox, withoutNextSteps, leftHalfBounds, openTodos, parseStatus, tmuxMeta, todoBoard, turnDigest, upsertSection, worthStatus } from "../extensions/canvas/index.ts";
 import { allowedHost, byteRange, clipTarget, latestClient, listSessions, parseFindings, prune, queueMessage, readAcks, readReply, readWatch, replyPreview, sessionForPane, sessionState, tmuxOf, withKit, PLAN_JS, SANDBOXED_SECTION_CSP, scriptableType, parseGitStatus, usageRows, gitInfo, sessionInfoOf } from "../extensions/canvas/daemon.mjs";
 
 const msg = (role, content, extra = {}) => ({ type: "message", message: { role, content, ...extra } });
@@ -1341,6 +1341,13 @@ test("daemon follows the Omarchy theme: serves it, and tells pages when it switc
     child.kill();
     rmSync(root, { recursive: true, force: true });
   }
+});
+
+test("daemonVersion includes PI_CANVAS_THEME, so changing it restarts a running daemon", () => {
+  const plain = daemonVersion({});
+  assert.match(plain, /^[0-9a-f]{12}$/);
+  assert.equal(daemonVersion({ PI_CANVAS_THEME: " System " }), `${plain}+theme=system`);
+  assert.equal(daemonVersion({ PI_CANVAS_THEME: "tokyo-night" }), plain, "ignored values don't restart it");
 });
 
 test("PI_CANVAS_THEME=system puts the default in the page shell; unset leaves it out", async () => {
