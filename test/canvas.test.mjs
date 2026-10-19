@@ -544,6 +544,7 @@ test("a tracker is a title, and an optional number, state, note and link", () =>
   assert.equal(t.id, "213");
   assert.equal(t.state, "doing");
   assert.equal(t.href, "http://bench.lab.home/#/projects/4/features/213");
+  assert.equal(JSON.parse(normalizeTracker({ id: "#42", title: "x" })).id, "42");
   assert.throws(() => normalizeTracker({}), /title/);
   assert.throws(() => normalizeTracker({ title: "x", href: "ftp://nope" }), /http/);
   assert.equal(JSON.parse(normalizeSpec("tracker", JSON.stringify({ title: "An issue", source: "GitHub" }))).source, undefined);

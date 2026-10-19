@@ -1168,7 +1168,7 @@ function trackerTone(state) {
   if (/^(done|closed|merged|shipped)$/.test(s)) return "ok";
   if (/^(review|waiting)$/.test(s)) return "warn";
   if (/^(blocked|failed|error)$/.test(s)) return "bad";
-  if (/^(doing|open|active|started)$/.test(s) || s === "in progress") return "go";
+  if (/^(doing|open|active|started|in[ _-]progress)$/.test(s)) return "go";
   return "dim";
 }
 
@@ -4669,7 +4669,7 @@ async function sessionView(id) {
     widgetSlot.querySelector(".dragging")?.classList.remove("dragging");
   };
   /** The item the pointer is above (null: past the last one). */
-  const dropBefore = (y) => [...widgetSlot.children].find((c) => c.dataset.side !== dragId && y < c.getBoundingClientRect().top + c.getBoundingClientRect().height / 2) || null;
+  const dropBefore = (y) => [...widgetSlot.children].find((c) => c.dataset.side !== dragId && c.dataset.kind !== "tracker" && y < c.getBoundingClientRect().top + c.getBoundingClientRect().height / 2) || null;
   widgetSlot.addEventListener("dragstart", (e) => {
     const item = e.target.closest?.("h2") && sideItem(e.target);
     if (!item || !sideIdOf(item)) return;

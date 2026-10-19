@@ -1502,7 +1502,8 @@ export function normalizeTracker(s: any): string {
   if (s.id != null && s.id !== "" && typeof s.id !== "string" && !Number.isInteger(s.id)) throw new Error("tracker.id must be text or a whole number");
   for (const k of ["state", "note", "href"]) optString(s[k], k);
   if (s.href && (!/^https?:\/\/\S+$/i.test(s.href) || s.href.length > 2000)) throw new Error("tracker.href must be an http(s) URL");
-  const id = s.id != null && String(s.id).trim() ? oneLine(String(s.id), 24) : undefined;
+  const rawId = s.id != null ? String(s.id).trim().replace(/^#/, "") : "";
+  const id = rawId ? oneLine(rawId, 24) : undefined;
   return JSON.stringify({
     title: oneLine(s.title, 300),
     ...(id ? { id } : {}),
